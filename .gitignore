@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+*.egg-info/
+dist/
+build/
+
+# Editor / IDE
+.idea/
+
+# Personal Claude Code settings — not portable across machines.
+.claude/settings.local.json
+
+# Eval runner output bundles. Sources live under tests/eval/, but each
+# invocation writes a per-UTC-timestamp directory of artefacts
+# (state.json, audio-recap.log, state/, cache/, data.json, results.md)
+# that should not be tracked.
+tests/eval/runs/
+
+# A pre-existing .audio-recap/config.json gets backed up by the
+# eval runner during a run and restored on exit; if a run is
+# interrupted the override file may be left behind.
+.audio-recap/
+
+# Ad-hoc tester bundles produced by external test runners.
+tester/test-runs/

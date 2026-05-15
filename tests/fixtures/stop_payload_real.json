@@ -1,0 +1,9 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/tmp/example-project/session.jsonl",
+  "cwd": "/tmp/example-project",
+  "permission_mode": "auto",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "A `frozenset` is Python's immutable version of a `set` — same operations (membership, union, intersection, difference) but you can't add or remove elements after creation. Because it's immutable and hashable, it can be used as a dict key or as an element of another set, which a regular `set` can't.\n\n```python\nfs = frozenset([1, 2, 3])\nfs | {4}          # frozenset({1, 2, 3, 4}) — returns new, doesn't mutate\n{fs: \"ok\"}        # works as dict key\n```"
+}

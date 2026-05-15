@@ -1,0 +1,46 @@
+{
+  "session_id": "sess_stub_0001",
+  "hook_event_name": "Stop",
+  "cwd": "/Users/dev/example-project",
+  "transcript": [
+    {
+      "role": "user",
+      "content": "The test suite is failing. Please fix it."
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/dev/example-project/src/main.py"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/dev/example-project/src/main.py",
+            "old_string": "foo",
+            "new_string": "bar"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_03",
+          "name": "Bash",
+          "input": {
+            "command": "pytest -q"
+          }
+        },
+        {
+          "type": "text",
+          "text": "I've fixed the failing test by renaming `foo` to `bar` in main.py. The original name was left over from a previous refactor and wasn't updated in the module's public symbols, so the import in the test file pointed at nothing. The full test suite now passes without any warnings."
+        }
+      ]
+    }
+  ]
+}

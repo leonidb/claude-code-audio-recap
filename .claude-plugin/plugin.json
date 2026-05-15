@@ -1,0 +1,10 @@
+{
+  "name": "audio-recap",
+  "version": "0.1.0",
+  "description": "Audio Recap for Claude Code — listen to each assistant turn: a one-sentence recap of what Claude did, then the message itself, with long replies summarized for ears.",
+  "author": {
+    "name": "Leonid Bakaleynik"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
+}

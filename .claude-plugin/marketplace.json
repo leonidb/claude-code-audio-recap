@@ -1,0 +1,24 @@
+{
+  "name": "claude-code-audio-recap",
+  "owner": {
+    "name": "Leonid Bakaleynik"
+  },
+  "metadata": {
+    "description": "Audio Recap marketplace — distributes the Audio Recap plugin via this repo.",
+    "version": "0.0.1"
+  },
+  "plugins": [
+    {
+      "name": "audio-recap",
+      "source": "./",
+      "description": "Audio Recap for Claude Code — listen to each assistant turn: a one-sentence recap of what Claude did, then the message itself, with long replies summarized for ears.",
+      "author": {
+        "name": "Leonid Bakaleynik"
+      },
+      "homepage": "https://github.com/leonidb/claude-code-audio-recap",
+      "repository": "https://github.com/leonidb/claude-code-audio-recap",
+      "license": "Apache-2.0",
+      "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
+    }
+  ]
+}

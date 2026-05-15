@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new commit on a branch cancels in-flight runs for the same ref so we
+# don't pile up duplicate jobs while iterating on a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Run pytest
+        run: uv run --python ${{ matrix.python-version }} pytest -q
+
+  static:
+    name: ruff + ty
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      # Pin static checks to a recent Python so ruff / ty work; the runtime
+      # floor is enforced by their target-version / python-version settings,
+      # not by the interpreter the linter itself runs under.
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: ruff
+        run: uv run --python 3.13 ruff check .
+
+      - name: ty
+        run: uv run --python 3.13 ty check .
+
+  commits:
+    name: conventional commits
+    runs-on: ubuntu-latest
+    # Only meaningful on PRs — we check every commit the PR adds over its base.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Conventional Commits subject-line check. Subject must match
+          # <type>[(scope)][!]: <description>. Merge commits are skipped.
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9 ._/-]+\))?!?: .+'
+          fail=0
+          for sha in $(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}"); do
+            subject=$(git log -1 --format=%s "$sha")
+            if ! printf '%s' "$subject" | grep -qE "$pattern"; then
+              echo "::error::Non-conventional commit ${sha}: ${subject}"
+              fail=1
+            fi
+          done
+          exit $fail

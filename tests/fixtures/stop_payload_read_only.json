@@ -1,0 +1,36 @@
+{
+  "session_id": "sess_stub_read_only",
+  "hook_event_name": "Stop",
+  "cwd": "/Users/dev/example-project",
+  "transcript": [
+    {
+      "role": "user",
+      "content": "What does main.py do?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/dev/example-project/src/main.py"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/dev/example-project/src/utils.py"
+          }
+        },
+        {
+          "type": "text",
+          "text": "main.py wires the CLI entrypoint through the utilities in utils.py and runs the main event loop."
+        }
+      ]
+    }
+  ]
+}

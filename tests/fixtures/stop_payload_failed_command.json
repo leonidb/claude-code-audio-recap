@@ -1,0 +1,28 @@
+{
+  "session_id": "sess_stub_failed_command",
+  "hook_event_name": "Stop",
+  "cwd": "/Users/dev/example-project",
+  "transcript": [
+    {
+      "role": "user",
+      "content": "Run the linter."
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "Bash",
+          "input": {
+            "command": "ruff check ."
+          }
+        },
+        {
+          "type": "text",
+          "text": "Ruff reported 3 issues across 2 files."
+        }
+      ]
+    }
+  ]
+}

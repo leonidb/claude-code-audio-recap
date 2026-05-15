@@ -1,0 +1,20 @@
+{
+  "session_id": "sess_stub_qa",
+  "hook_event_name": "Stop",
+  "cwd": "/Users/dev/example-project",
+  "transcript": [
+    {
+      "role": "user",
+      "content": "What's the difference between a set and a frozenset in Python?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "A `set` is mutable — you can add and remove items. A `frozenset` is immutable, which means it's hashable and can be used as a dict key or an element of another set."
+        }
+      ]
+    }
+  ]
+}
