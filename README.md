@@ -105,11 +105,7 @@ Audio Recap calls `claude -p --model claude-haiku-4-5` once per narrated turn �
 
 ## Privacy
 
-Audio Recap runs entirely on your machine. The eventlog (`~/.claude/audio-recap/logs/audio-recap.log`) is local-only — never uploaded, never shared, never seen by Anthropic or anyone else. The plugin makes no network calls of its own; it shells out to `claude -p` (which uses your Claude Code authentication and your normal API endpoint) and to macOS `say` and `afplay` (which run locally).
-
-**What lives in the local log:** at the default INFO level the log carries only metadata — the path each fire took, per-stage timings, word counts, and the slash-command verb you invoked. It does **not** record the recap text or the message text. Set `log_level` to `"trace"` and the log additionally captures the full recap and message content for each fire, the full `claude -p` prompts and responses, the inbound CC payload, and full Python tracebacks for any caught exception. If your assistant text contains secrets (API keys pasted into a Claude prompt, credentials in a code block), they appear in the log only when TRACE is on. Treat `~/.claude/audio-recap/logs/` like any other local debug log: don't share screenshots that include it, don't post it to bug reports without redacting, and feel free to delete it (the plugin recreates the file on the next fire).
-
-**No telemetry.** No anonymous usage stats, no error reporting, no model fingerprinting — the only network traffic this plugin originates is the `claude -p` subprocess call you've already authorized for Claude Code itself.
+Audio Recap runs entirely on your machine. The messages are never logged, and the log is purely local for debug purposes. No telemetry, no network calls of its own beyond the `claude -p` subprocess Claude Code already uses.
 
 ## Contributing
 
