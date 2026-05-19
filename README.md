@@ -6,7 +6,7 @@
 
 Audio Recap speaks a Haiku-summarized recap of every turn — long replies condensed into spoken prose, not read verbatim — so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
 
-<video src="docs/demo.mp4" controls width="720"></video>
+<video src="https://raw.githubusercontent.com/leonidb/claude-code-audio-recap/main/docs/demo.mp4" controls width="720"></video>
 
 ## What you'll hear
 
