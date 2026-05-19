@@ -15,18 +15,6 @@ After each assistant turn, Audio Recap speaks at most two segments:
 1. **Recap** — a one-sentence summary of the turn's actions, e.g. *"Edited `auth.py` and `tests/test_auth.py`. Ran the test suite. All passing."*
 2. **Message** — Claude's reply to you. Long messages are summarized for listening, not read in full.
 
-## Where Audio Recap fits
-
-Audio plugins for Claude Code split roughly three ways:
-
-- **Heavier multi-platform voice stacks** — bidirectional or multi-engine TTS that installs extra services and runs background daemons, often spanning several agents. Powerful, install-heavy.
-- **Lightweight narrate-everything hooks** — pipe every assistant turn directly to TTS, verbatim. Simple, but long messages drag, code blocks read aloud, and you never hear what the turn actually *did*.
-- **Audio Recap** sits between them: a one-sentence Haiku-summarized recap of what the turn did, plus the assistant's reply (summarized if long), and nothing else. No mic, no models to download, no daemon, no API key beyond Claude Code's. Just `/plugin install`.
-
-If you run another audio plugin alongside this one, pick one — two will double-narrate every turn and collide on the audio output.
-
-> **Note:** `/voice` is Claude Code's built-in dictation. Audio Recap commands all live under `/audio-recap:` — `/audio-recap:on`, `/audio-recap:off`, `/audio-recap:status`, `/audio-recap:repeat`.
-
 ## Quickstart
 
 Requires macOS, for now.
@@ -64,6 +52,18 @@ To disable: `/audio-recap:off`. To check current state without changing it: `/au
 `/audio-recap:repeat` replays the most recent narration audibly — it works whether Audio Recap is on or off. Only the latest turn is replayable; earlier ones aren't kept, and an empty session gets a short "nothing to repeat" cue.
 
 If nothing's been narrated yet this session, `repeat` narrates the last turn instead, so you still hear it.
+
+## Where Audio Recap fits
+
+Audio plugins for Claude Code split roughly three ways:
+
+- **Heavier multi-platform voice stacks** — bidirectional or multi-engine TTS that installs extra services and runs background daemons, often spanning several agents. Powerful, install-heavy.
+- **Lightweight narrate-everything hooks** — pipe every assistant turn directly to TTS, verbatim. Simple, but long messages drag, code blocks read aloud, and you never hear what the turn actually *did*.
+- **Audio Recap** sits between them: a one-sentence Haiku-summarized recap of what the turn did, plus the assistant's reply (summarized if long), and nothing else. No mic, no models to download, no daemon, no API key beyond Claude Code's. Just `/plugin install`.
+
+If you run another audio plugin alongside this one, pick one — two will double-narrate every turn and collide on the audio output.
+
+> **Note:** `/voice` is Claude Code's built-in dictation. Audio Recap commands all live under `/audio-recap:` — `/audio-recap:on`, `/audio-recap:off`, `/audio-recap:status`, `/audio-recap:repeat`.
 
 ## Sound less robotic (1-minute setup)
 
