@@ -4,6 +4,8 @@
 
 *Hear what Claude Code is doing without watching the screen.*
 
+<video src="docs/demo.mp4" controls width="720"></video>
+
 Audio Recap speaks a one-sentence recap of every turn — long replies summarized for ears — so you can step away and trust the audio to pull you back when there's something worth your attention.
 
 ## What you'll hear
