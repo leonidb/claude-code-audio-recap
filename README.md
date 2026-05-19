@@ -4,18 +4,16 @@
 
 *Hear what Claude Code is doing without watching the screen.*
 
-<video src="docs/demo.mp4" controls width="720"></video>
+Audio Recap speaks a Haiku-summarized recap of every turn — long replies condensed into spoken prose, not read verbatim — so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
 
-Audio Recap speaks a one-sentence recap of every turn — long replies summarized for ears — so you can step away and trust the audio to pull you back when there's something worth your attention.
+<video src="docs/demo.mp4" controls width="720"></video>
 
 ## What you'll hear
 
 After each assistant turn, Audio Recap speaks at most two segments:
 
 1. **Recap** — a one-sentence summary of the turn's actions, e.g. *"Edited `auth.py` and `tests/test_auth.py`. Ran the test suite. All passing."*
-2. **Message** — Claude's reply to you. Code blocks and tables are announced rather than read out loud ("Code block: 12 lines, Python."). Long messages are summarized in plain prose rather than read in full or cut off mid-sentence.
-
-Pure tool-work turns (no user-facing message) speak only the recap. Pure Q&A turns (no tools, no edits) speak only the message. The plugin never narrates silence on a non-empty turn.
+2. **Message** — Claude's reply to you. Long messages are summarized for listening, not read in full.
 
 ## Where Audio Recap fits
 
