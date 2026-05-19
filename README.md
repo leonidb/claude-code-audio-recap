@@ -38,22 +38,19 @@ The first command tells Claude Code where to find Audio Recap; the second instal
 Audio Recap is **off by default** in every Claude Code session — running the install above doesn't make any noise yet. To enable it for the session you're in:
 
 ```
-/audio-recap:on
+/audio-recap:on      # enable narration for this session
+/audio-recap:off     # disable narration for this session
+/audio-recap:status  # check current state
 ```
-
-(`audio-recap:` is the plugin's command namespace — Claude Code prefixes every plugin's slash commands this way to keep them collision-free.)
-
-`/audio-recap:on` enables the plugin **for that session only**. Other open Claude Code sessions are unaffected — flip them on or off independently. Ask Claude to do something, and you should hear a one-sentence recap followed by Claude's reply.
-
-To disable: `/audio-recap:off`. To check current state without changing it: `/audio-recap:status`. State applies to the session it was set in and persists for that session indefinitely — `claude --continue` resumes the same session id, so your setting survives the resume.
 
 > **Highly recommended:** default macOS voices sound robotic. Spend a minute installing a Premium voice via [Sound less robotic](#sound-less-robotic-1-minute-setup--highly-recommended) — it's an order-of-magnitude quality jump.
 
-### Replay the last narration
+### 3. Other commands
 
-`/audio-recap:repeat` replays the most recent narration audibly — it works whether Audio Recap is on or off. Only the latest turn is replayable; earlier ones aren't kept, and an empty session gets a short "nothing to repeat" cue.
-
-If nothing's been narrated yet this session, `repeat` narrates the last turn instead, so you still hear it.
+```
+/audio-recap:repeat  # replay the most recent narration
+Esc                  # stop a narration mid-playback
+```
 
 ## Where Audio Recap fits
 
@@ -82,12 +79,6 @@ Default macOS voices (Samantha, Alex, Fred) are functional but obviously synthet
 **Use it as the system voice:**
 
 In the same panel, set **System voice** to your downloaded Premium voice. Audio Recap inherits whatever the system default is.
-
-## Stopping audio mid-speech
-
-Press **Esc** during a narration to cancel both the hook and any in-progress audio. The Stop hook is synchronous — it stays in the foreground until `afplay` finishes — so a single Esc terminates the full chain and Claude Code moves on. Useful when you've already read the message on screen and don't need to hear it.
-
-(`/audio-recap:off` is the persistent counterpart — it disables Audio Recap for the rest of the session. Esc is the one-shot "stop *this* one.")
 
 ## How it works
 
