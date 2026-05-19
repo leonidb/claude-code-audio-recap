@@ -17,11 +17,11 @@ Pure tool-work turns (no user-facing message) speak only the recap. Pure Q&A tur
 
 ## Where Audio Recap fits
 
-Tools that add audio to Claude Code split roughly three ways:
+Audio plugins for Claude Code split roughly three ways:
 
-- **Bidirectional voice** — Claude speaks, and you speak back via local speech-to-text. Powerful, but it means downloading speech models and running background services.
-- **Narrate-everything** — read every assistant turn out loud, verbatim, start to finish.
-- **Light, summarized narration** — Audio Recap's lane. A one-sentence recap plus the message, with long replies summarized so they stay listenable. No microphone, no models, no background services — the listening half of an away-from-screen loop, paired with CC's built-in `/voice` (or Whisper/Wispr) for input.
+- **Heavier multi-platform voice stacks** — bidirectional or multi-engine TTS that installs extra services and runs background daemons, often spanning several agents. Powerful, install-heavy.
+- **Lightweight narrate-everything hooks** — pipe every assistant turn directly to TTS, verbatim. Simple, but long messages drag, code blocks read aloud, and you never hear what the turn actually *did*.
+- **Audio Recap** sits between them: a one-sentence Haiku-summarized recap of what the turn did, plus the assistant's reply (summarized if long), and nothing else. No mic, no models to download, no daemon, no API key beyond Claude Code's. Just `/plugin install`.
 
 If you run another audio plugin alongside this one, pick one — two will double-narrate every turn and collide on the audio output.
 
