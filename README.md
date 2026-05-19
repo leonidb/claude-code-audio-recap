@@ -4,16 +4,18 @@
 
 *Hear what Claude Code is doing without watching the screen.*
 
-Audio Recap speaks a Haiku-summarized recap of every turn — long replies condensed into spoken prose, not read verbatim — so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
+Audio Recap speaks a Haiku-summarized recap of every turn - long replies condensed into spoken prose, not read verbatim - so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
 
-<video src="docs/demo.mp4" controls width="720"></video>
+> 🔊 **Click unmute to hear the recap - the audio plays after Claude finishes outputting.**
+
+<video src="https://github.com/user-attachments/assets/4c4eb7ab-a8a8-43c1-b269-5b006328101d" controls width="720"></video>
 
 ## What you'll hear
 
 After each assistant turn, Audio Recap speaks at most two segments:
 
-1. **Recap** — a one-sentence summary of the turn's actions, e.g. *"Edited `auth.py` and `tests/test_auth.py`. Ran the test suite. All passing."*
-2. **Message** — Claude's reply to you. Long messages are summarized for listening, not read in full.
+1. **Recap** - a one-sentence summary of the turn's actions, e.g. *"Edited `auth.py` and `tests/test_auth.py`. Ran the test suite. All passing."*
+2. **Message** - Claude's reply to you. Long messages are summarized for listening, not read in full.
 
 ## Quickstart
 
@@ -29,13 +31,13 @@ From inside any Claude Code session, type:
 /reload-plugins
 ```
 
-The first command tells Claude Code where to find Audio Recap; the second installs it; the third makes its commands available in the current session (or restart the session — same effect). Type all three at the CC prompt, no need to drop to a separate shell.
+The first command tells Claude Code where to find Audio Recap; the second installs it; the third makes its commands available in the current session (or restart the session - same effect). Type all three at the CC prompt, no need to drop to a separate shell.
 
 > Prefer the shell? `claude plugin marketplace add leonidb/claude-code-audio-recap` and `claude plugin install audio-recap@claude-code-audio-recap` work from any terminal as well. You'll still need `/reload-plugins` (or a session restart) inside CC before the slash commands appear.
 
 ### 2. Turn Audio Recap on
 
-Audio Recap is **off by default** in every Claude Code session — running the install above doesn't make any noise yet. To enable it for the session you're in:
+Audio Recap is **off by default** in every Claude Code session - running the install above doesn't make any noise yet. To enable it for the session you're in:
 
 ```
 /audio-recap:on      # enable narration for this session
@@ -43,7 +45,7 @@ Audio Recap is **off by default** in every Claude Code session — running the i
 /audio-recap:status  # check current state
 ```
 
-> **Highly recommended:** default macOS voices sound robotic. Spend a minute installing a Premium voice via [Sound less robotic](#sound-less-robotic-1-minute-setup--highly-recommended) — it's an order-of-magnitude quality jump.
+> **Highly recommended:** default macOS voices sound robotic. Spend a minute installing a Premium voice via [Sound less robotic](#sound-less-robotic-1-minute-setup---highly-recommended) - it's an order-of-magnitude quality jump.
 
 ### 3. Other commands
 
@@ -56,25 +58,25 @@ Esc                  # stop a narration mid-playback
 
 Audio plugins for Claude Code split roughly three ways:
 
-- **Heavier multi-platform voice stacks** — bidirectional or multi-engine TTS that installs extra services and runs background daemons, often spanning several agents. Powerful, install-heavy.
-- **Lightweight narrate-everything hooks** — pipe every assistant turn directly to TTS, verbatim. Simple, but long messages drag, code blocks read aloud, and you never hear what the turn actually *did*.
+- **Heavier multi-platform voice stacks** - bidirectional or multi-engine TTS that installs extra services and runs background daemons, often spanning several agents. Powerful, install-heavy.
+- **Lightweight narrate-everything hooks** - pipe every assistant turn directly to TTS, verbatim. Simple, but long messages drag, code blocks read aloud, and you never hear what the turn actually *did*.
 - **Audio Recap** sits between them: a one-sentence Haiku-summarized recap of what the turn did, plus the assistant's reply (summarized if long), and nothing else. No mic, no models to download, no daemon, no API key beyond Claude Code's. Just `/plugin install`.
 
-If you run another audio plugin alongside this one, pick one — two will double-narrate every turn and collide on the audio output.
+If you run another audio plugin alongside this one, pick one - two will double-narrate every turn and collide on the audio output.
 
-> **Note:** `/voice` is Claude Code's built-in dictation. Audio Recap commands all live under `/audio-recap:` — `/audio-recap:on`, `/audio-recap:off`, `/audio-recap:status`, `/audio-recap:repeat`.
+> **Note:** `/voice` is Claude Code's built-in dictation. Audio Recap commands all live under `/audio-recap:` - `/audio-recap:on`, `/audio-recap:off`, `/audio-recap:status`, `/audio-recap:repeat`.
 
-## Sound less robotic (1-minute setup) — highly recommended!
+## Sound less robotic (1-minute setup) - highly recommended!
 
-Default macOS voices (Samantha, Alex, Fred) are functional but obviously synthetic. macOS also ships a set of **Premium** neural voices that sound roughly an order of magnitude better — same engine, much more natural prosody. They're free but have to be downloaded once.
+Default macOS voices (Samantha, Alex, Fred) are functional but obviously synthetic. macOS also ships a set of **Premium** neural voices that sound roughly an order of magnitude better - same engine, much more natural prosody. They're free but have to be downloaded once.
 
 **Install a Premium voice:**
 
 1. Open **System Settings → Accessibility → Spoken Content**.
 2. Click the dropdown next to **System voice → Manage Voices…**
-3. Find a **Premium** voice (recommended for English: **Ava (Premium)**, **Evan (Premium)**, **Zoe (Premium)**, **Joelle (Premium)**, **Jamie (Premium)**, or **Samantha (Premium)** — pick one whose sample you like).
+3. Find a **Premium** voice (recommended for English: **Ava (Premium)**, **Evan (Premium)**, **Zoe (Premium)**, **Joelle (Premium)**, **Jamie (Premium)**, or **Samantha (Premium)** - pick one whose sample you like).
 4. Click the cloud-download button next to it. Each Premium voice is ~150–200 MB.
-5. Wait for the download — usually under a minute.
+5. Wait for the download - usually under a minute.
 
 **Use it as the system voice:**
 
@@ -92,7 +94,7 @@ Each Stop hook is a fresh one-shot process. Full architecture in [`docs/architec
 
 ## What it costs
 
-Audio Recap calls `claude -p --model claude-haiku-4-5` once per narrated turn — for the recap, and again when a reply is long enough to summarize. That's **additional model usage**: it draws on the same Claude Code subscription or API credits your coding session already uses. It runs on Haiku, though — the cheapest model, far below the cost of the model doing your actual coding — so the per-turn overhead is small next to a normal session. No separate API key or account: it uses your existing Claude Code auth.
+Audio Recap calls `claude -p --model claude-haiku-4-5` once per narrated turn - for the recap, and again when a reply is long enough to summarize. That's **additional model usage**: it draws on the same Claude Code subscription or API credits your coding session already uses. It runs on Haiku, though - the cheapest model, far below the cost of the model doing your actual coding - so the per-turn overhead is small next to a normal session. No separate API key or account: it uses your existing Claude Code auth.
 
 ## Privacy
 
@@ -100,7 +102,7 @@ Audio Recap runs entirely on your machine. The messages are never logged, and th
 
 ## Contributing
 
-PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, conventions, and how to add a new TTS or recap backend.
+PRs welcome - see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, conventions, and how to add a new TTS or recap backend.
 
 ## License
 
