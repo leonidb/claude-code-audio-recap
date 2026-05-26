@@ -23,6 +23,7 @@ and "never lengthen the input" is stated as a hard rule.
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import traceback
 from typing import Protocol
 
@@ -120,11 +121,26 @@ class ClaudePSummarizer:
             session_id=self._session_id,
             prompt=prompt,
         )
+        # Minimal, isolated child — see the parallel comment in
+        # :class:`audio_recap.recap.claude_p.ClaudePRecap.generate`.
+        argv = [
+            "claude",
+            "-p",
+            "--model",
+            self._config.model,
+            "--strict-mcp-config",
+            "--tools",
+            "",
+            "--setting-sources",
+            "",
+            "--no-session-persistence",
+        ]
         try:
             result = self._runner.run(
-                ["claude", "-p", "--model", self._config.model],
+                argv,
                 input=prompt,
                 timeout=self._config.timeout_s,
+                cwd=tempfile.gettempdir(),
             )
         except subprocess.TimeoutExpired as e:
             self._eventlog.event_trace(

@@ -42,10 +42,13 @@ class ProcessFailed(Exception):
 class ProcessRunner(Protocol):
     """Minimal seam over :func:`subprocess.run`.
 
-    One method, three params. Implementations may capture stdout/stderr,
-    apply timeouts, or stub the call entirely (test fakes). Always returns
-    a :class:`subprocess.CompletedProcess` with ``capture_output=True`` and
+    Implementations may capture stdout/stderr, apply timeouts, or stub the
+    call entirely (test fakes). Always returns a
+    :class:`subprocess.CompletedProcess` with ``capture_output=True`` and
     ``text=True`` semantics so callers don't repeat the boilerplate.
+
+    ``cwd`` mirrors the same-named :func:`subprocess.run` parameter:
+    ``cwd=None`` inherits the parent working directory.
     """
 
     def run(
@@ -54,6 +57,7 @@ class ProcessRunner(Protocol):
         *,
         input: str | None = None,
         timeout: float | None = None,
+        cwd: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run ``argv`` and return the completed process.
 
@@ -75,6 +79,7 @@ class SubprocessProcessRunner:
         *,
         input: str | None = None,
         timeout: float | None = None,
+        cwd: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
@@ -83,6 +88,7 @@ class SubprocessProcessRunner:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                cwd=cwd,
                 check=False,
             )
         except FileNotFoundError as e:
