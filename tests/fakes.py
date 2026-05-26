@@ -11,7 +11,7 @@ Usage shape:
     services = build_services(
         recap_primary=FakeRecap(returns="Edited a file."),
         tts=FakeTTS(),
-        state=InMemoryStateStore({("sid", "/proj"): True}),
+        state=InMemoryStateStore({"sid": True}),
     )
     rc = hook.main(services=services)
 
@@ -117,23 +117,29 @@ class FakeTTS:
 
 @dataclass
 class InMemoryStateStore:
-    """Dict-backed StateStore. Key is ``(session_id, cwd)``; value is bool."""
+    """Dict-backed StateStore. Key is ``session_id``; value is bool.
 
-    initial: dict[tuple[str, str], bool] = field(default_factory=dict)
+    Mirrors production :class:`FileStateStore` semantics: state is keyed
+    by session id alone, so ``cwd`` is accepted for API compatibility but
+    ignored. Keeping the fake aligned means a cwd-drift scenario behaves
+    the same here as on disk.
+    """
+
+    initial: dict[str, bool] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self._store: dict[tuple[str, str], bool] = dict(self.initial)
+        self._store: dict[str, bool] = dict(self.initial)
 
     def load(self, session_id: str, cwd: str, *, default_enabled: bool = False) -> State:
-        if (session_id, cwd) in self._store:
-            return State(enabled=self._store[(session_id, cwd)])
+        if session_id in self._store:
+            return State(enabled=self._store[session_id])
         return State(enabled=default_enabled)
 
     def save(self, state: State, session_id: str, cwd: str) -> None:
-        self._store[(session_id, cwd)] = state.enabled
+        self._store[session_id] = state.enabled
 
     @property
-    def saves(self) -> dict[tuple[str, str], bool]:
+    def saves(self) -> dict[str, bool]:
         return dict(self._store)
 
 
@@ -391,10 +397,10 @@ def cache_root(tmp_path: Path) -> Path:
     return tmp_path / "cache"
 
 
-def projects_root(tmp_path: Path) -> Path:
-    """State-store projects root under a test's ``tmp_path``."""
+def state_root(tmp_path: Path) -> Path:
+    """State-store root under a test's ``tmp_path``."""
 
-    return tmp_path / "projects"
+    return tmp_path / "state"
 
 
 def transcript_root(tmp_path: Path) -> Path:
@@ -451,12 +457,12 @@ def seed_enabled(tmp_path: Path, payload: dict[str, Any]) -> None:
     Mirrors :class:`audio_recap.payload.PayloadParser`'s defaults —
     missing ``session_id`` → ``"_global"``, missing ``cwd`` → ``""`` — so
     the seed lands at the path the hook reads from, under the tmp-rooted
-    projects store.
+    state store.
     """
 
     sid = payload.get("session_id") or "_global"
     cwd = payload.get("cwd") or ""
-    FileStateStore(projects_root(tmp_path)).save(State(enabled=True), sid, cwd)
+    FileStateStore(state_root(tmp_path)).save(State(enabled=True), sid, cwd)
 
 
 __all__ = [
@@ -477,9 +483,9 @@ __all__ = [
     "cache_root",
     "completed",
     "event_log_path",
-    "projects_root",
     "raw_payload",
     "real_services",
     "seed_enabled",
+    "state_root",
     "transcript_root",
 ]

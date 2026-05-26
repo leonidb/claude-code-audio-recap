@@ -2,7 +2,7 @@
 
 Reads the Claude Code Stop-event JSON payload from stdin, parses it
 into a :class:`audio_recap.payload.TurnPayload`, consults persistent
-state keyed on ``(session_id, cwd)``, optionally runs the recap +
+state keyed on ``session_id`` alone, optionally runs the recap +
 summary :class:`audio_recap.pipeline.Pipeline`, and speaks the result
 through the configured :class:`audio_recap.tts.TTS` backend. One-shot
 per invocation; no long-running state.

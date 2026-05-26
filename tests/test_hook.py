@@ -17,10 +17,10 @@ from tests.fakes import (
     audio_handlers,
     cache_root,
     completed,
-    projects_root,
     raw_payload,
     real_services,
     seed_enabled,
+    state_root,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -151,10 +151,10 @@ def test_explicitly_disabled_state_exits_immediately(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     raw, payload = _raw_fixture("stop_payload.json")
-    # Save explicit disabled state for the (sid, cwd) on the payload.
+    # Save explicit disabled state for the session_id on the payload.
     sid = payload.get("session_id") or "_global"
     cwd = payload.get("cwd") or ""
-    FileStateStore(projects_root(tmp_path)).save(State(enabled=False), sid, cwd)
+    FileStateStore(state_root(tmp_path)).save(State(enabled=False), sid, cwd)
     services, calls = _mock_services(payload["cwd"], tmp_path)
 
     assert hook.main(raw, services=services) == 0
@@ -162,6 +162,30 @@ def test_explicitly_disabled_state_exits_immediately(
     assert calls["rule_based"] == []
     assert calls["say"] == []
     assert "audio recap disabled" in capsys.readouterr().err
+
+
+def test_enabled_under_one_cwd_is_seen_when_hook_fires_under_another(tmp_path: Path) -> None:
+    """End-to-end regression for the silent-turn bug.
+
+    ``/audio-recap:on`` ran under one cwd; the Stop hook later fires under
+    a drifted cwd (the payload's). With the old per-cwd keying the state
+    file was written under one directory and missed under the other →
+    silent turn. Session-only keying must find it: the hook reads the
+    enabled flag and narrates despite the cwd mismatch.
+    """
+
+    raw, payload = _raw_fixture("stop_payload.json")
+    sid = payload.get("session_id") or "_global"
+    # State written under a cwd that is NOT the one the Stop hook fires under.
+    drifted_cwd = payload["cwd"] + "/subdir/the/agent/cd-ed/into"
+    assert drifted_cwd != payload["cwd"]
+    FileStateStore(state_root(tmp_path)).save(State(enabled=True), sid, drifted_cwd)
+
+    services, calls = _mock_services(payload["cwd"], tmp_path)
+    assert hook.main(raw, services=services) == 0
+
+    # Narration ran → the enabled flag was found despite the cwd drift.
+    assert calls["say"] != []
 
 
 def test_skip_if_no_tool_use_fires_on_qa_fixture(tmp_path: Path) -> None:
@@ -525,7 +549,7 @@ def test_two_sessions_in_same_project_have_independent_state(
 ) -> None:
     """Session A is enabled; session B is not. B's hook fires, B stays silent."""
 
-    FileStateStore(projects_root(tmp_path)).save(State(enabled=True), "session-A", "/proj")
+    FileStateStore(state_root(tmp_path)).save(State(enabled=True), "session-A", "/proj")
     # Session B has no state file → default off.
     payload_b: dict[str, Any] = {
         "session_id": "session-B",
@@ -1499,7 +1523,7 @@ def test_explicit_off_state_beats_default_enabled_true(
     cfg.write_text(json.dumps({"default_enabled": True}), encoding="utf-8")
 
     sid = "explicit-off-sid"
-    FileStateStore(projects_root(tmp_path)).save(State(enabled=False), sid, str(cwd))
+    FileStateStore(state_root(tmp_path)).save(State(enabled=False), sid, str(cwd))
 
     payload: dict[str, Any] = {
         "session_id": sid,

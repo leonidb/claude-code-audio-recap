@@ -18,8 +18,8 @@ from tests.fakes import (
     FakeProcessRunner,
     audio_handlers,
     cache_root,
-    projects_root,
     real_services,
+    state_root,
     transcript_root,
 )
 
@@ -217,7 +217,7 @@ def test_state_independence_cache_hit_speaks_even_when_narration_off(
 ) -> None:
     # /repeat ignores the on/off toggle — it's an explicit user request
     # for sound, not auto-narration. The state file isn't even read.
-    FileStateStore(projects_root(tmp_path)).save(State(enabled=False), "sid-3", "/proj")
+    FileStateStore(state_root(tmp_path)).save(State(enabled=False), "sid-3", "/proj")
     cache.write("sid-3", "Recap.", "Message.")
     rc = repeat.main(
         ["repeat", "--session-id", "sid-3", "--cwd", "/proj"], services=make_services()
