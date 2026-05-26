@@ -160,7 +160,7 @@ class Services:
                 config.summarizer, session_id, actual_runner, actual_eventlog
             ),
             tts=MacOSSay(config.tts, actual_runner),
-            state=FileStateStore(audio_recap_root / "projects"),
+            state=FileStateStore(audio_recap_root / "state"),
             cache=FileNarrationCache(audio_recap_root / "cache"),
             eventlog=actual_eventlog,
             transcript_reader=FileTranscriptReader(transcript_root),

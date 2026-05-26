@@ -89,13 +89,13 @@ Each run lands under `tests/eval/runs/<UTC-timestamp>/` (gitignored).
 Layout:
 
 The run bundle doubles as the hook's `audio_recap_root`, so the
-plugin's own storage (`logs/`, `cache/`, `projects/`) nests inside it:
+plugin's own storage (`logs/`, `cache/`, `state/`) nests inside it:
 
 ```
 runs/2026-05-14T16-30Z/
 ├── state.json            # prompt list, session_ids, captured assistant text
 ├── logs/audio-recap.log  # bundle-local eventlog (no global pollution)
-├── projects/             # bundle-local on/off state (pre-seeded enabled=true)
+├── state/                # bundle-local on/off state (pre-seeded enabled=true)
 ├── cache/                # bundle-local narration cache written by the hook
 ├── data.json             # per-turn structured data (harvested)
 ├── results.md            # human-readable rendering of data.json

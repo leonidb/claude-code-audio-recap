@@ -30,12 +30,12 @@ per fresh session = clean per-turn quality measurement.
 
 Output bundle layout under ``tests/eval/runs/<UTC-timestamp>/`` — the
 run bundle doubles as the hook's ``audio_recap_root``, so the plugin's
-own storage (``logs/``, ``cache/``, ``projects/``) nests inside it:
+own storage (``logs/``, ``cache/``, ``state/``) nests inside it:
 
 - ``state.json`` — run id + per-turn metadata (prompt, session_id,
   assistant_text, tool_use_count, …) for the harvest stage.
 - ``logs/audio-recap.log`` — bundle-local eventlog from the hook fires.
-- ``projects/`` — bundle-local on/off state (pre-seeded ``enabled=true``).
+- ``state/`` — bundle-local on/off state (pre-seeded ``enabled=true``).
 - ``cache/`` — bundle-local narration cache written by the hook.
 - ``data.json`` / ``results.md`` — produced by :mod:`tests.eval.harvest`.
 
@@ -272,10 +272,10 @@ def _run_prompt(
     session_id = str(uuid.uuid4())
     # Pre-seed enabled state in the bundle-local store so the hook
     # doesn't exit on the default-off gate. ``_fire_hook`` wires the
-    # hook's StateStore to this same ``run_dir/projects`` root (the
-    # ``projects/`` subdir ``Services.from_config`` derives from
+    # hook's StateStore to this same ``run_dir/state`` root (the
+    # ``state/`` subdir ``Services.from_config`` derives from
     # ``audio_recap_root=run_dir``).
-    FileStateStore(run_dir / "projects").save(State(enabled=True), session_id, str(cwd))
+    FileStateStore(run_dir / "state").save(State(enabled=True), session_id, str(cwd))
 
     blocks, error = _run_claude(
         prompt["prompt"], cwd=cwd, allowed_tools=allowed_tools, timeout_s=timeout_s

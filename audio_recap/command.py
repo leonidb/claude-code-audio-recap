@@ -10,10 +10,11 @@ Invalid forms print a short usage to stderr and exit 2 (convention for
 argv errors). Successful forms print a single confirmation line to
 stdout and exit 0.
 
-State is per-session, keyed on ``session_id`` and the project ``cwd``.
-The slash-command markdown bodies (``commands/on.md``,
-``commands/off.md``, ``commands/status.md``) pass both as flags before
-the action verb:
+State is per-session, keyed on ``session_id`` alone (see
+:mod:`audio_recap.state`); ``cwd`` is still passed for logging and API
+compatibility but does not affect the state path. The slash-command
+markdown bodies (``commands/on.md``, ``commands/off.md``,
+``commands/status.md``) pass both as flags before the action verb:
 
     python -m audio_recap.command --session-id <id> --cwd <path> on|off|status
 

@@ -8,7 +8,7 @@ import pytest
 from audio_recap import command
 from audio_recap.services import Services
 from audio_recap.state import FileStateStore, State
-from tests.fakes import FakeProcessRunner, projects_root, real_services
+from tests.fakes import FakeProcessRunner, real_services, state_root
 
 # Every test injects a ``Services`` whose ``FileStateStore`` is rooted
 # under ``tmp_path`` so the real ~/.claude/audio-recap tree is never
@@ -21,9 +21,9 @@ CWD = "/proj"
 
 @pytest.fixture
 def store(tmp_path: Path) -> FileStateStore:
-    """A FileStateStore rooted at the same projects dir the injected Services uses."""
+    """A FileStateStore rooted at the same state dir the injected Services uses."""
 
-    return FileStateStore(projects_root(tmp_path))
+    return FileStateStore(state_root(tmp_path))
 
 
 @pytest.fixture
@@ -277,7 +277,7 @@ def test_off_persists_after_default_enabled_true(tmp_path: Path) -> None:
 
     # Reading state with default_enabled=True must still see the
     # persisted ``false``. (The file beats the config default.)
-    store = FileStateStore(projects_root(tmp_path))
+    store = FileStateStore(state_root(tmp_path))
     s = store.load("explicit-off-sid", str(cwd), default_enabled=True)
     assert s.enabled is False
 

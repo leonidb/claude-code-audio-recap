@@ -23,10 +23,10 @@ press Esc to stop a narration mid-speech. Backgrounding `say` would
 break that cancel path.
 
 **Per-session state.** Each CC session's on/off flag lives in its own
-JSON file at `~/.claude/audio-recap/projects/<encoded-cwd>/<session-id>.json`
-(`<encoded-cwd>` follows CC's own `~/.claude/projects/...` encoding). The
-file holds a single `enabled` boolean. `/audio-recap:on` writes it; the
-Stop hook reads it. Default — and any missing/unreadable file — is
+JSON file at `~/.claude/audio-recap/state/<session-id>.json`, keyed by
+session id alone — so a session that changes working directory mid-run
+keeps a single state file. The file holds a single `enabled` boolean.
+`/audio-recap:on` writes it; the Stop hook reads it. Default — and any missing/unreadable file — is
 `enabled: false` (fail-quiet: a broken state file never produces surprise
 audio). State persists across `claude --continue` and indefinitely
 thereafter.
@@ -53,7 +53,7 @@ summarizer failure → full verbatim message, never a truncated form
 Stop hook fires (CC supplies JSON on stdin: session_id, cwd, transcript)
   │
   ▼
-read ~/.claude/audio-recap/projects/<encoded-cwd>/<session-id>.json
+read ~/.claude/audio-recap/state/<session-id>.json
   │
   ├── missing / unreadable / enabled: false ──► exit 0
   │

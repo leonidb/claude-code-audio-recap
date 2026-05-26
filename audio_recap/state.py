@@ -2,16 +2,20 @@
 
 The :class:`StateStore` Protocol is the seam Pipeline / hook / command
 inject; :class:`FileStateStore` is the production implementation that
-persists to disk. It takes its ``projects_root`` as a required
+persists to disk. It takes its ``state_root`` as a required
 constructor argument — the composition root (:mod:`audio_recap.services`)
-supplies the production default; tests pass a tmp path or substitute
-:class:`InMemoryStateStore` (in ``tests/fakes.py``).
+supplies the production default (``~/.claude/audio-recap/state``); tests
+pass a tmp path or substitute :class:`InMemoryStateStore` (in
+``tests/fakes.py``).
 
-State files live at ``<projects_root>/<encoded-cwd>/<session-id>.json``.
-Each holds one JSON object with a single boolean, ``enabled``. The path
-mirrors Claude Code's own per-project layout under
-``~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`` so the on-disk
-shape is visually parseable for users.
+State files live at ``<state_root>/<session-id>.json``. Keyed by
+session-id only: ``/audio-recap:on`` enables narration for the entire
+CC session regardless of which working directory the Stop hook fires
+under. The ``cwd`` argument accepted by :meth:`FileStateStore.load` and
+:meth:`FileStateStore.save` is carried for API compatibility but is not
+used in path construction.
+
+Each file holds one JSON object with a single boolean, ``enabled``.
 
 Audio Recap is **off by default**: a fresh session (no state file), an
 unrecoverable failure path (corrupt JSON, wrong shape, non-bool value),
@@ -26,6 +30,13 @@ fallback used by ``scripts/run.sh`` when CC fails to substitute
 ``${CLAUDE_SESSION_ID}`` into the slash-command body. State written
 under that id collapses back to a single shared file and the run.sh
 sentinel logs a loud stderr warning the user will notice.
+
+Note: earlier versions stored state under ``~/.claude/audio-recap/
+projects/`` keyed per-cwd (``projects/<encoded-cwd>/<session-id>.json``).
+State now lives under ``state/`` keyed by session-id alone, so the whole
+old ``projects/`` tree is orphaned on upgrade. A currently-enabled
+session that crosses the upgrade boundary will fall back to default
+(disabled) and require ``/audio-recap:on`` once more.
 """
 
 from __future__ import annotations
@@ -70,19 +81,18 @@ def _encode_cwd(cwd: str) -> str:
     return encoded or "_unknown-cwd"
 
 
-def _path_for(session_id: str, cwd: str, projects_root: Path) -> Path:
-    """Return the per-session state file path under ``projects_root``.
+def _path_for(session_id: str, state_root: Path) -> Path:
+    """Return the per-session state file path under ``state_root``.
 
-    A session_id of ``"_global"`` is the run.sh runtime-sentinel fallback;
-    its files live under a sibling ``_global/`` directory rather than under
-    a project-encoded one. That keeps the global fallback visually distinct
-    from real per-project state on disk.
+    Keyed by session-id only; ``cwd`` is not part of the path (see module
+    docstring). A session_id of ``"_global"`` is the run.sh runtime-sentinel
+    fallback; its files live under a sibling ``_global/`` directory so they
+    remain visually distinct from real session state on disk.
     """
 
     if session_id == "_global":
-        # The runtime-sentinel fallback path. Single shared file.
-        return projects_root.parent / "_global" / "state.json"
-    return projects_root / _encode_cwd(cwd) / f"{session_id}.json"
+        return state_root.parent / "_global" / "state.json"
+    return state_root / f"{session_id}.json"
 
 
 def _log_corrupt(path: Path, reason: str) -> None:
@@ -112,18 +122,18 @@ class StateStore(Protocol):
 class FileStateStore:
     """Disk-backed state. Default production implementation.
 
-    ``projects_root`` is required — the composition root supplies the
+    ``state_root`` is required — the composition root supplies the
     production default; tests pass a tmp path.
     """
 
-    def __init__(self, projects_root: Path) -> None:
-        self._projects_root = projects_root
+    def __init__(self, state_root: Path) -> None:
+        self._state_root = state_root
 
     def load(self, session_id: str, cwd: str, *, default_enabled: bool = False) -> State:
-        return self._load(_path_for(session_id, cwd, self._projects_root), default_enabled)
+        return self._load(_path_for(session_id, self._state_root), default_enabled)
 
     def save(self, state: State, session_id: str, cwd: str) -> None:
-        self._save(state, _path_for(session_id, cwd, self._projects_root))
+        self._save(state, _path_for(session_id, self._state_root))
 
     @staticmethod
     def _load(path: Path, default_enabled: bool) -> State:
