@@ -100,8 +100,30 @@ def test_claude_binary_missing_raises_recap_failed() -> None:
 def test_subprocess_is_called_with_configured_model() -> None:
     impl, runner = _impl(stdout="ok.\n", config=RecapConfig(model="claude-opus-4-7", timeout_s=5.0))
     impl.generate(_load_fixture("stop_payload.json"))
-    assert runner.calls[0][0] == ["claude", "-p", "--model", "claude-opus-4-7"]
-    assert runner.calls[0][1]["timeout"] == 5.0
+    argv, kwargs = runner.calls[0]
+    assert argv[0] == "claude"
+    assert argv[1] == "-p"
+    assert "--model" in argv
+    assert argv[argv.index("--model") + 1] == "claude-opus-4-7"
+    assert "--strict-mcp-config" in argv
+    assert kwargs["timeout"] == 5.0
+
+
+def test_subprocess_uses_isolation_flags_and_neutral_cwd() -> None:
+    import tempfile
+
+    impl, runner = _impl(stdout="ok.\n")
+    impl.generate(_load_fixture("stop_payload.json"))
+    argv, kwargs = runner.calls[0]
+
+    # Isolation comes from the CLI flags (env-independent), not an env scrub:
+    # --strict-mcp-config with no --mcp-config loads zero MCP servers.
+    for flag in ("--strict-mcp-config", "--tools", "--setting-sources", "--no-session-persistence"):
+        assert flag in argv, f"missing isolation flag: {flag}"
+    # Neutral cwd — the system temp dir, not the caller's project dir.
+    assert kwargs["cwd"] == tempfile.gettempdir()
+    # The child inherits the parent environment unchanged (no env plumbing).
+    assert "env" not in kwargs
 
 
 def test_prompt_contains_tool_use_trace() -> None:
