@@ -92,7 +92,7 @@ def test_from_config_roots_file_services_under_the_injected_paths(tmp_path: Path
     from audio_recap.state import State
 
     services.state.save(State(enabled=True), "sid", "/proj")
-    assert (tmp_path / "projects" / "-proj" / "sid.json").exists()
+    assert (tmp_path / "projects" / "sid.json").exists()
     # A cache write lands under the injected cache root.
     services.cache.write("sid", "recap", "message")
     assert (tmp_path / "cache" / "sid.txt").exists()
