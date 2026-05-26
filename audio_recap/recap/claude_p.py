@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 import traceback
 
 from audio_recap.config import Recap as RecapConfig
@@ -141,11 +142,34 @@ class ClaudePRecap:
             backend="claude_p",
             prompt=prompt,
         )
+        # Run a minimal, isolated child: --strict-mcp-config (with no
+        # --mcp-config) loads zero MCP servers; no tools, no hooks/settings,
+        # no session state; a neutral cwd. Summarization is pure text, so the
+        # child needs none of the caller's project context — isolation keeps
+        # it free of side effects and startup cost.
+        #
+        # The child inherits the parent environment unchanged (no env= below).
+        # That's deliberate: MCP isolation comes from --strict-mcp-config
+        # ignoring all on-disk config, not from scrubbing env vars — and the
+        # inherited env is what carries the auth/PATH the child needs.
+        argv = [
+            "claude",
+            "-p",
+            "--model",
+            self._config.model,
+            "--strict-mcp-config",
+            "--tools",
+            "",
+            "--setting-sources",
+            "",
+            "--no-session-persistence",
+        ]
         try:
             result = self._runner.run(
-                ["claude", "-p", "--model", self._config.model],
+                argv,
                 input=prompt,
                 timeout=self._config.timeout_s,
+                cwd=tempfile.gettempdir(),
             )
         except subprocess.TimeoutExpired as e:
             self._eventlog.event_trace(

@@ -283,8 +283,9 @@ class FakeProcessRunner:
         *,
         input: str | None = None,
         timeout: float | None = None,
+        cwd: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        self.calls.append((list(argv), {"input": input, "timeout": timeout}))
+        self.calls.append((list(argv), {"input": input, "timeout": timeout, "cwd": cwd}))
         if not argv:
             raise AssertionError("FakeProcessRunner: empty argv")
         binary = argv[0]
@@ -308,7 +309,7 @@ class FakeProcessRunner:
         """Single-binary fake for tests of ``ClaudePRecap`` / ``ClaudePSummarizer``."""
 
         def handler(
-            argv: list[str], *, input: str | None, timeout: float | None
+            argv: list[str], *, input: str | None, timeout: float | None, **_: Any
         ) -> subprocess.CompletedProcess[str] | BaseException:
             if raises is not None:
                 return raises

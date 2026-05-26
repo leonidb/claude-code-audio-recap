@@ -41,7 +41,11 @@ def test_summarize_returns_stripped_stdout() -> None:
 
     assert out == "Three short sentences. About the message. Done."
     argv, kwargs = runner.calls[0]
-    assert argv == ["claude", "-p", "--model", "claude-haiku-4-5"]
+    assert argv[0] == "claude"
+    assert argv[1] == "-p"
+    assert "--model" in argv
+    assert argv[argv.index("--model") + 1] == "claude-haiku-4-5"
+    assert "--strict-mcp-config" in argv
     assert "Your reply, to be rewritten:" in kwargs["input"]
     assert "a long message" in kwargs["input"]
 
