@@ -13,13 +13,13 @@ from audio_recap.state import FileStateStore, State, _encode_cwd, _path_for
 # there directly, then read it back through the store.
 
 SID = "sess1"
-CWD = "/x"
+CWD = "/x"  # kept for call-site compatibility; ignored by FileStateStore since v0.1.1
 
 
 def _seed(tmp_path: Path, body: str, *, session_id: str = SID, cwd: str = CWD) -> Path:
-    """Write ``body`` at the state path the store will read for (session_id, cwd)."""
+    """Write ``body`` at the state path the store will read for session_id."""
 
-    path = _path_for(session_id, cwd, tmp_path)
+    path = _path_for(session_id, tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     return path
@@ -153,10 +153,10 @@ def test_save_then_load_round_trip_true(tmp_path: Path) -> None:
 
 
 def test_save_creates_parent_dirs(tmp_path: Path) -> None:
-    # Fresh root: the encoded-cwd subdirectory doesn't exist yet.
+    # Fresh root: the state_root directory doesn't exist yet.
     store = FileStateStore(tmp_path / "nested" / "deeper")
     store.save(State(enabled=True), SID, CWD)
-    path = _path_for(SID, CWD, tmp_path / "nested" / "deeper")
+    path = _path_for(SID, tmp_path / "nested" / "deeper")
     assert path.exists()
     with path.open(encoding="utf-8") as f:
         assert json.load(f) == {"enabled": True}
@@ -172,7 +172,7 @@ def test_save_overwrites_existing(tmp_path: Path) -> None:
 def test_save_leaves_no_stray_temp_files(tmp_path: Path) -> None:
     store = FileStateStore(tmp_path)
     store.save(State(enabled=True), SID, CWD)
-    path = _path_for(SID, CWD, tmp_path)
+    path = _path_for(SID, tmp_path)
     siblings = sorted(x.name for x in path.parent.iterdir())
     assert siblings == [path.name]
 
@@ -184,8 +184,8 @@ def test_state_dataclass_defaults_to_disabled() -> None:
 # ---------- per-session keying ----------
 
 
-def test_two_sessions_in_same_project_are_isolated(tmp_path: Path) -> None:
-    """Two sessions under the same cwd write to distinct files."""
+def test_two_sessions_are_isolated(tmp_path: Path) -> None:
+    """Two different sessions write to distinct files regardless of cwd."""
 
     store = FileStateStore(tmp_path)
     store.save(State(enabled=True), "sess-a", "/proj")
@@ -194,17 +194,26 @@ def test_two_sessions_in_same_project_are_isolated(tmp_path: Path) -> None:
     assert store.load("sess-b", "/proj") == State(enabled=False)
 
 
-def test_path_layout_is_projects_encoded_cwd_session_id_json(tmp_path: Path) -> None:
-    """Default path: projects/<encoded-cwd>/<session-id>.json."""
+def test_path_layout_is_state_root_session_id_json(tmp_path: Path) -> None:
+    """State file lives directly at state_root/<session-id>.json (no cwd subdir)."""
 
-    p = _path_for("abc-123", "/Users/dev/proj", tmp_path)
-    assert p == tmp_path / "-Users-dev-proj" / "abc-123.json"
+    p = _path_for("abc-123", tmp_path)
+    assert p == tmp_path / "abc-123.json"
 
 
-def test_global_sentinel_lives_outside_projects_dir(tmp_path: Path) -> None:
-    """``_global`` is the runtime-sentinel fallback; it escapes ``projects/``."""
+def test_same_session_different_cwd_shares_one_file(tmp_path: Path) -> None:
+    """cwd changes within a session do not create separate state files."""
 
-    p = _path_for("_global", "/anything", tmp_path / "projects")
+    store = FileStateStore(tmp_path)
+    store.save(State(enabled=True), "sess-x", "/dir-a")
+    # A load from a different cwd still reads the same enabled state.
+    assert store.load("sess-x", "/dir-b") == State(enabled=True)
+
+
+def test_global_sentinel_lives_outside_state_dir(tmp_path: Path) -> None:
+    """``_global`` is the runtime-sentinel fallback; it escapes ``state/``."""
+
+    p = _path_for("_global", tmp_path / "state")
     assert p == tmp_path / "_global" / "state.json"
 
 

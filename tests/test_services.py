@@ -88,11 +88,11 @@ def test_from_config_roots_file_services_under_the_injected_paths(tmp_path: Path
     """The injected roots reach the file-backed services — nothing hits ~/.claude."""
 
     services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
-    # A state save lands under the injected projects root, not the home dir.
+    # A state save lands under the injected state root, not the home dir.
     from audio_recap.state import State
 
     services.state.save(State(enabled=True), "sid", "/proj")
-    assert (tmp_path / "projects" / "-proj" / "sid.json").exists()
+    assert (tmp_path / "state" / "sid.json").exists()
     # A cache write lands under the injected cache root.
     services.cache.write("sid", "recap", "message")
     assert (tmp_path / "cache" / "sid.txt").exists()
