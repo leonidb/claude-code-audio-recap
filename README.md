@@ -33,9 +33,9 @@ From inside any Claude Code session, type:
 
 The first command tells Claude Code where to find Audio Recap; the second installs it; the third makes its commands available in the current session (or restart the session - same effect). Type all three at the CC prompt, no need to drop to a separate shell.
 
-> Prefer the shell? `claude plugin marketplace add leonidb/claude-code-audio-recap` and `claude plugin install audio-recap@claude-code-audio-recap` work from any terminal as well. You'll still need `/reload-plugins` (or a session restart) inside CC before the slash commands appear.
-
 > Using the Claude desktop app? Open the **Code** tab, click **+** next to the prompt, and choose **Plugins → Add plugin**. Add the marketplace `leonidb/claude-code-audio-recap`, then install Audio Recap from it. Installs from the app are active right away, no reload needed.
+
+> Note: in the desktop app you also need the Claude Code CLI installed - `curl -fsSL https://claude.ai/install.sh | bash`
 
 ### 2. Turn Audio Recap on
 
