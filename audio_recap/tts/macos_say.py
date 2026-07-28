@@ -43,7 +43,7 @@ from typing import Any
 
 from audio_recap.config import TTS as TTSConfig
 from audio_recap.process import ProcessFailed, ProcessRunner
-from audio_recap.tts import TTSFailed
+from audio_recap.tts import RenderResult, TTSFailed
 
 _AFINFO_DURATION_RE = re.compile(r"estimated duration:\s*([0-9.]+)\s*sec")
 
@@ -78,9 +78,10 @@ class MacOSSay:
         self._runner = runner
 
     def speak(self, text: str) -> dict[str, Any] | None:
-        """Speak ``text``. Default path is two-stage; falls back to streaming.
+        """Speak ``text`` (composed :meth:`render` + :meth:`play`).
 
-        Returns a metrics dict (or ``None`` when input is empty /
+        Default path is two-stage (render → inspect → play); falls back to
+        streaming. Returns a metrics dict (or ``None`` when input is empty /
         whitespace-only). Dict shape:
 
         - ``say_path`` — ``"two_stage"`` (clean) or ``"legacy_fallback"``.
@@ -100,86 +101,138 @@ class MacOSSay:
         streaming fallback fail. The hook surfaces that to stderr.
         """
 
+        rendered = self.render(text)
+        if rendered is None:
+            return None
+        return self.play(rendered)
+
+    # ------------------------------------------------------------------
+    # render (pre-lock): synthesise → inspect. No playback here.
+    # ------------------------------------------------------------------
+
+    def render(self, text: str) -> RenderResult | None:
+        """Synthesise ``text`` to an AIFF and inspect it, WITHOUT playing.
+
+        Runs before the playback lock so synthesis (~1s) overlaps the queue
+        wait. Never raises for a synthesis failure — the two render-side gates
+        (``say -o`` failed, or the AIFF is suspiciously short) set
+        ``use_legacy`` so :meth:`play` runs the streaming fallback under the
+        lock. Returns ``None`` for empty / whitespace-only ``text``.
+        """
+
         if not text.strip():
             return None
-        return self._speak_two_stage(text)
-
-    # ------------------------------------------------------------------
-    # primary path: render → inspect → play
-    # ------------------------------------------------------------------
-
-    def _speak_two_stage(self, text: str) -> dict[str, Any]:
-        """Run the three-stage flow with three fallback gates.
-
-        Each fallback path closes over the partial metrics observed
-        so far and runs the streaming legacy ``say`` as a
-        last-resort. If legacy itself fails, ``TTSFailed`` propagates
-        and the hook exits 1.
-        """
 
         expected_s = self._expected_seconds(text)
         # mkstemp is race-free; the random suffix avoids collisions
         # under parallel fires that a manual ``<sid>-<seq>.aiff``
-        # naming scheme would have to coordinate.
+        # naming scheme would have to coordinate. ``play`` owns cleanup
+        # (its ``finally`` unlinks the handle), including the empty temp
+        # left behind when the render itself fails.
         fd, aiff_path = tempfile.mkstemp(prefix="audio-recap-", suffix=".aiff")
         os.close(fd)
+
         try:
-            try:
-                synth_elapsed_s = self._render_to_aiff(text, aiff_path)
-            except TTSFailed:
-                # Synthesizer subprocess failed — try streaming as the
-                # last resort. If it succeeds, the user gets audio
-                # (even if vulnerable to the same daemon truncation
-                # we were trying to dodge); if it fails too, the
-                # raised TTSFailed propagates up unchanged.
-                self._speak_legacy(text)
-                return self._fallback_metrics(
-                    expected_s,
-                    "render_failed",
-                    synth_elapsed_s=-1.0,
-                    aiff_duration_s=-1.0,
-                )
+            synth_elapsed_s = self._render_to_aiff(text, aiff_path)
+        except TTSFailed:
+            # Synthesizer subprocess failed — mark for the streaming fallback,
+            # which ``play`` runs under the lock.
+            return RenderResult(
+                text=text,
+                handle=aiff_path,
+                expected_s=expected_s,
+                synth_elapsed_s=-1.0,
+                aiff_duration_s=-1.0,
+                use_legacy=True,
+                fallback_reason="render_failed",
+            )
 
-            aiff_duration_s = self._aiff_duration(aiff_path)
+        aiff_duration_s = self._aiff_duration(aiff_path)
 
-            # Short-aiff check: the synthesizer claims success but
-            # the rendered audio is materially shorter than the word
-            # count predicts. Suspect FB13188396-class engine cut.
-            # Streaming path may stochastically dodge it.
-            if (
-                aiff_duration_s > 0.0
-                and expected_s > 0.0
-                and aiff_duration_s < expected_s * _SHORT_AIFF_RATIO
-            ):
-                self._speak_legacy(text)
+        # Short-aiff check: the synthesizer claims success but the rendered
+        # audio is materially shorter than the word count predicts. Suspect
+        # FB13188396-class engine cut. Streaming path may stochastically dodge
+        # it. This gate runs pre-lock (at render time); the fallback plays
+        # under the lock.
+        if (
+            aiff_duration_s > 0.0
+            and expected_s > 0.0
+            and aiff_duration_s < expected_s * _SHORT_AIFF_RATIO
+        ):
+            return RenderResult(
+                text=text,
+                handle=aiff_path,
+                expected_s=expected_s,
+                synth_elapsed_s=synth_elapsed_s,
+                aiff_duration_s=aiff_duration_s,
+                use_legacy=True,
+                fallback_reason="short_aiff",
+            )
+
+        return RenderResult(
+            text=text,
+            handle=aiff_path,
+            expected_s=expected_s,
+            synth_elapsed_s=synth_elapsed_s,
+            aiff_duration_s=aiff_duration_s,
+            use_legacy=False,
+            fallback_reason=None,
+        )
+
+    # ------------------------------------------------------------------
+    # play (under lock): afplay the rendered AIFF, or stream as fallback.
+    # ------------------------------------------------------------------
+
+    def play(self, rendered: RenderResult) -> dict[str, Any] | None:
+        """Play a :meth:`render` result; falls back to streaming if needed.
+
+        Runs while holding the playback lock so only playback is serialised.
+        Owns cleanup of the rendered AIFF (unlinked in ``finally``, including
+        the empty temp left by a failed render). Raises :class:`TTSFailed`
+        when both the AIFF path AND the streaming fallback fail.
+        """
+
+        aiff_path = rendered.handle
+        try:
+            if rendered.use_legacy:
+                # Render-side gate already chose streaming (render_failed /
+                # short_aiff). Run it under the lock; if it fails too, the
+                # raised TTSFailed propagates and the hook exits 1.
+                self._speak_legacy(rendered.text)
                 return self._fallback_metrics(
-                    expected_s,
-                    "short_aiff",
-                    synth_elapsed_s=synth_elapsed_s,
-                    aiff_duration_s=aiff_duration_s,
+                    rendered.expected_s,
+                    rendered.fallback_reason or "render_failed",
+                    synth_elapsed_s=rendered.synth_elapsed_s,
+                    aiff_duration_s=rendered.aiff_duration_s,
                 )
 
             try:
                 afplay_elapsed_s = self._play_aiff(aiff_path)
             except TTSFailed:
-                self._speak_legacy(text)
+                self._speak_legacy(rendered.text)
                 return self._fallback_metrics(
-                    expected_s,
+                    rendered.expected_s,
                     "afplay_failed",
-                    synth_elapsed_s=synth_elapsed_s,
-                    aiff_duration_s=aiff_duration_s,
+                    synth_elapsed_s=rendered.synth_elapsed_s,
+                    aiff_duration_s=rendered.aiff_duration_s,
                 )
 
             return {
                 "say_path": "two_stage",
-                "synth_elapsed_s": synth_elapsed_s,
-                "aiff_duration_s": aiff_duration_s,
+                "synth_elapsed_s": rendered.synth_elapsed_s,
+                "aiff_duration_s": rendered.aiff_duration_s,
                 "afplay_elapsed_s": afplay_elapsed_s,
-                "expected_say_s": expected_s,
+                "expected_say_s": rendered.expected_s,
             }
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(aiff_path)
+
+    def discard(self, rendered: RenderResult) -> None:
+        """Unlink a rendered AIFF that will never be played. Best-effort."""
+
+        with contextlib.suppress(OSError):
+            os.unlink(rendered.handle)
 
     @staticmethod
     def _fallback_metrics(

@@ -108,9 +108,17 @@ class Config:
     language: str = "en"
     # When True, the Stop hook and ``/audio-recap:repeat`` skip the ``say``
     # subprocess but keep recap generation, summarization, and event
-    # logging on. Set via the per-cwd ``.audio-recap/config.json`` so a
-    # testing-agent worktree can dispatch many fires without audible
-    # playback (see :meth:`Config.load`).
+    # logging on. Set via the per-cwd ``.audio-recap/config.json`` (see
+    # :meth:`Config.load`).
+    #
+    # What it is for: answering "what would it have said?" without making a
+    # sound. Paired with ``log_level: "trace"`` the recap and message text
+    # land in the event log, which is the way to reproduce a narration
+    # complaint on someone else's machine, or to watch the transforms on a
+    # turn without listening to it.
+    #
+    # Note the cost is not zero — ``claude -p`` still runs for real. This
+    # suppresses playback, not work.
     dry_run: bool = False
     # When True, a fresh session in this cwd starts with Audio Recap ON
     # without requiring ``/audio-recap:on``. Only kicks in on the
@@ -127,6 +135,27 @@ class Config:
     # root maps this to the event log's ``trace_enabled`` flag; any
     # value other than ``"trace"`` is treated as ``"info"``.
     log_level: str = "info"
+    # Crash-safety net (seconds) for the cross-session presence registry — NOT
+    # an idleness timeout. A heartbeat is retired when the session switches
+    # narration off or closes (see :mod:`audio_recap.presence`), so the only way
+    # one outlives its session is a hard kill that runs no SessionEnd. This is
+    # the horizon past which such an orphan stops counting.
+    #
+    # It is deliberately long: two sessions open side by side must name
+    # themselves however long ago either last spoke, so a session that has gone
+    # quiet for an hour is still a neighbour worth disambiguating from. Ageing
+    # it out on idleness is the one thing this must not do. 24h means an orphan
+    # from a crash can cost an unneeded label for the rest of the day — the
+    # harmless direction, and the same one a stale heartbeat always erred in.
+    # Lower it if you hard-kill sessions often and would rather have the
+    # opposite trade.
+    presence_window_s: int = 86_400
+    # Word cap on the spoken session label (see :mod:`audio_recap.label`). The
+    # label is a cue, not a sentence — it rides in front of the narration, so a
+    # long one delays what the listener is actually waiting for. 5 fits a real
+    # rename ("nbrown-clean sensei") and a two-segment project path; raise it if
+    # your session names are longer.
+    label_max_words: int = 5
 
     @classmethod
     def default(cls) -> Config:
@@ -194,6 +223,12 @@ def _apply_overrides(base: Config, data: dict[str, Any]) -> Config:
     # wrong type) leaves the ``"info"`` default.
     if data.get("log_level") == "trace":
         overrides["log_level"] = "trace"
+    window = data.get("presence_window_s")
+    if isinstance(window, int) and not isinstance(window, bool) and window > 0:
+        overrides["presence_window_s"] = window
+    max_words = data.get("label_max_words")
+    if isinstance(max_words, int) and not isinstance(max_words, bool) and max_words > 0:
+        overrides["label_max_words"] = max_words
 
     # Nested ``tts`` sub-object — only the diagnostic-related fields
     # are exposed today. ``voice`` / ``rate_wpm`` stay Python-level

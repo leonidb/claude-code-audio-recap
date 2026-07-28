@@ -82,6 +82,8 @@ def test_from_config_wires_the_production_graph(tmp_path: Path) -> None:
     assert services.cache is not None
     assert services.eventlog is not None
     assert services.transcript_reader is not None
+    assert services.playback_lock is not None
+    assert services.presence_registry is not None
 
 
 def test_from_config_roots_file_services_under_the_injected_paths(tmp_path: Path) -> None:
@@ -96,3 +98,26 @@ def test_from_config_roots_file_services_under_the_injected_paths(tmp_path: Path
     # A cache write lands under the injected cache root.
     services.cache.write("sid", "recap", "message")
     assert (tmp_path / "cache" / "sid.txt").exists()
+    # Presence heartbeats land under the injected root too.
+    services.presence_registry.heartbeat("sid")
+    assert (tmp_path / "active" / "sid").exists()
+
+
+def test_from_config_fails_open_to_null_lock_when_lockfile_uncreatable(tmp_path: Path) -> None:
+    """Unwritable lock path → NullPlaybackLock (fail-open), never a crash."""
+    from audio_recap.lock import NullPlaybackLock
+    from audio_recap.services import Services
+
+    # A FILE where the audio-recap root dir is expected — mkdir under it fails.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir", encoding="utf-8")
+    bad_root = blocker / "audio-recap"
+
+    services = Services.from_config(
+        "/proj",
+        session_id="sid",
+        runner=FakeProcessRunner(),
+        audio_recap_root=bad_root,
+        transcript_root=tmp_path / "cc",
+    )
+    assert isinstance(services.playback_lock, NullPlaybackLock)

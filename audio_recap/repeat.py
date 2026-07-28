@@ -18,8 +18,20 @@ Decision tree:
 3. **Cache miss + transcript empty / unreadable** → speak a short
    audible "nothing to repeat" cue and log ``path=empty_transcript``.
 
-V1 limitation: if a Stop hook is mid-speak when ``/repeat`` fires,
-two speak processes overlap audibly. We don't coordinate.
+V1 limitation: ``/repeat`` takes no playback lock, so if a Stop hook
+is mid-speak when it fires the two overlap audibly. Deliberate for
+now — it is an explicit "play it now" aimed at a session the user is
+looking at, and queueing that behind background narration would be
+the wrong answer to the request.
+
+Presence is the other half and cuts the other way: a replay is a
+sound this session made, so it should count. This module writes no
+heartbeat itself, but on an enabled session the Stop hook that
+follows the slash-command turn records one before it short-circuits
+(see :mod:`audio_recap.hook`) — which is the wanted outcome. With
+narration off the replay is still audible and nothing registers; a
+session the user muted does not get to make other sessions announce
+themselves.
 
 Invocation shape mirrors ``audio_recap.command`` so ``scripts/run.sh``
 can dispatch both:

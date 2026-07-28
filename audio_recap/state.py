@@ -41,15 +41,14 @@ session that crosses the upgrade boundary will fall back to default
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 import re
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from audio_recap.atomicwrite import write_json_atomic
 
 
 @dataclass(frozen=True)
@@ -188,15 +187,4 @@ class FileStateStore:
         file is cleaned up and the exception propagates.
         """
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_name = tempfile.mkstemp(prefix=".state-", suffix=".json", dir=str(path.parent))
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                json.dump({"enabled": state.enabled}, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_name, path)
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_name)
-            raise
+        write_json_atomic(path, {"enabled": state.enabled})

@@ -391,3 +391,136 @@ def test_parse_afinfo_duration_missing_returns_none() -> None:
 
 def test_parse_afinfo_duration_tolerates_whitespace() -> None:
     assert _parse_afinfo_duration("estimated duration:    0.500   sec") == 0.5
+
+
+# ---------- render / play split (v2: pre-render outside the playback lock) ----------
+
+
+def test_render_synthesises_without_playing() -> None:
+    """render() runs ``say -o`` + ``afinfo`` but NEVER ``afplay`` — no audio yet."""
+    runner = _make_runner()
+    impl = MacOSSay(TTSConfig(), runner=runner)
+
+    rendered = impl.render("a sentence")
+
+    assert rendered is not None
+    assert rendered.use_legacy is False
+    binaries = [c[0][0] for c in runner.calls]
+    assert "say" in binaries
+    assert "afinfo" in binaries
+    assert "afplay" not in binaries  # playback deferred to play()
+
+
+def test_render_empty_text_returns_none() -> None:
+    runner = _make_runner()
+    impl = MacOSSay(TTSConfig(), runner=runner)
+    assert impl.render("") is None
+    assert impl.render("   \n\t ") is None
+    assert runner.calls == []
+
+
+def test_play_runs_afplay_on_the_rendered_aiff() -> None:
+    """play() plays exactly the AIFF render() produced, then cleans it up."""
+    runner = _make_runner()
+    impl = MacOSSay(TTSConfig(), runner=runner)
+    rendered = impl.render("a sentence")
+    assert rendered is not None
+    aiff = rendered.handle
+
+    metrics = impl.play(rendered)
+
+    assert metrics is not None
+    assert metrics["say_path"] == "two_stage"
+    assert ["afplay", aiff] in _argvs(runner)
+    assert not os.path.exists(aiff)  # play() owns cleanup
+
+
+def test_render_then_play_matches_speak_metrics() -> None:
+    """The split path yields the same metrics shape as the composed speak()."""
+    runner = _make_runner()
+    impl = MacOSSay(TTSConfig(), runner=runner)
+    rendered = impl.render("two words here")
+    assert rendered is not None
+    split_metrics = impl.play(rendered)
+
+    composed = MacOSSay(TTSConfig(), runner=_make_runner()).speak("two words here")
+
+    assert split_metrics is not None and composed is not None
+    assert set(split_metrics.keys()) == set(composed.keys())
+    assert split_metrics["say_path"] == composed["say_path"] == "two_stage"
+
+
+def test_render_failure_defers_streaming_fallback_to_play() -> None:
+    """A ``say -o`` failure marks use_legacy; the streaming say runs in play()."""
+    runner = _make_runner(say_render_returncode=1, say_render_stderr="bad voice")
+    impl = MacOSSay(TTSConfig(), runner=runner)
+
+    rendered = impl.render("hello")
+    assert rendered is not None
+    assert rendered.use_legacy is True
+    assert rendered.fallback_reason == "render_failed"
+    # render() attempted only ``say -o`` (no streaming yet).
+    assert [c[0][0] for c in runner.calls] == ["say"]
+
+    metrics = impl.play(rendered)
+    assert metrics is not None
+    assert metrics["say_path"] == "legacy_fallback"
+    assert metrics["fallback_reason"] == "render_failed"
+    # play() ran the streaming ``say --`` fallback.
+    assert any(c[0][0] == "say" and "-o" not in c[0] for c in runner.calls)
+
+
+def test_render_short_aiff_defers_streaming_fallback_to_play() -> None:
+    """A suspiciously short AIFF marks use_legacy=short_aiff; play() streams."""
+    # 6 words at 120 wpm expect 3.0s; report 1.0s (< 0.7 * 3.0) to trip the gate.
+    runner = _make_runner(afinfo_stdout="estimated duration: 1.000 sec")
+    impl = MacOSSay(TTSConfig(baseline_wpm=120), runner=runner)
+
+    rendered = impl.render("one two three four five six")
+    assert rendered is not None
+    assert rendered.use_legacy is True
+    assert rendered.fallback_reason == "short_aiff"
+
+    metrics = impl.play(rendered)
+    assert metrics is not None
+    assert metrics["say_path"] == "legacy_fallback"
+    assert metrics["fallback_reason"] == "short_aiff"
+
+
+def test_play_afplay_failure_falls_back_to_streaming() -> None:
+    """afplay failing in play() falls back to the streaming say under the lock."""
+    runner = _make_runner(afplay_returncode=1, afplay_stderr="device busy")
+    impl = MacOSSay(TTSConfig(), runner=runner)
+
+    rendered = impl.render("hello")
+    assert rendered is not None
+    assert rendered.use_legacy is False  # render was clean; afplay fails later
+
+    metrics = impl.play(rendered)
+    assert metrics is not None
+    assert metrics["say_path"] == "legacy_fallback"
+    assert metrics["fallback_reason"] == "afplay_failed"
+
+
+def test_play_cleans_up_aiff_even_on_legacy_fallback() -> None:
+    """The temp AIFF is unlinked by play() even when it streams instead."""
+    runner = _make_runner(say_render_returncode=1)
+    impl = MacOSSay(TTSConfig(), runner=runner)
+    rendered = impl.render("hello")
+    assert rendered is not None
+    impl.play(rendered)
+    assert not os.path.exists(rendered.handle)
+
+
+def test_discard_unlinks_rendered_aiff_without_playing() -> None:
+    """discard() frees a rendered temp AIFF without ever running afplay."""
+    runner = _make_runner()
+    impl = MacOSSay(TTSConfig(), runner=runner)
+    rendered = impl.render("hello")
+    assert rendered is not None
+    assert os.path.exists(rendered.handle)
+
+    impl.discard(rendered)
+
+    assert not os.path.exists(rendered.handle)
+    assert not any(c[0][0] == "afplay" for c in runner.calls)  # never played

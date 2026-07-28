@@ -393,6 +393,30 @@ def test_transcript_path_synthesizes_inline_transcript(tmp_path: Path) -> None:
     assert calls["say"][1][-1] == long_message
 
 
+def test_transcript_with_invalid_utf8_degrades_instead_of_crashing(tmp_path: Path) -> None:
+    """A bad byte in the JSONL must not take the Stop hook down.
+
+    ``UnicodeDecodeError`` is a ``ValueError`` — neither an ``OSError`` nor a
+    ``JSONDecodeError`` — so it used to escape the parser as an unhandled
+    crash. The transcript race (a partially-flushed multi-byte sequence) is a
+    real way to hit it. Degrade to message-only narration instead.
+    """
+    jsonl = tmp_path / "bad.jsonl"
+    jsonl.write_bytes(b'{"type":"user","message":{"role":"user","content":"hi \xff\xfe"}}\n')
+    payload: dict[str, Any] = {
+        "session_id": "s",
+        "cwd": "/proj",
+        "transcript_path": str(jsonl),
+        "last_assistant_message": "Here is the reply.",
+    }
+    seed_enabled(tmp_path, payload)
+    services, calls = _mock_services("/proj", tmp_path)
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+    # Fell back to the last_assistant_message field — still narrated.
+    assert calls["say"][-1][-1] == "Here is the reply."
+
+
 def test_real_payload_fixture_narrates_summarized_message_no_recap(tmp_path: Path) -> None:
     # The committed real-shape fixture carries a `transcript_path` that
     # doesn't exist on this machine — the JSONL synthesis returns None,
@@ -1693,3 +1717,239 @@ def test_trace_speech_log_off_by_default(tmp_path: Path, log_path: Path) -> None
     assert hook.main(raw, services=services) == 0
     text = log_path.read_text(encoding="utf-8")
     assert "event=trace_speech_log" not in text
+
+
+# ---------- presence heartbeat (multi-session) ----------
+
+
+def test_enabled_fire_records_presence_heartbeat(tmp_path: Path) -> None:
+    """A narrating session registers itself under active/."""
+    raw, payload = _raw_fixture("stop_payload.json")
+    seed_enabled(tmp_path, payload)
+    services, _ = _mock_services(payload["cwd"], tmp_path)
+
+    assert hook.main(raw, services=services) == 0
+
+    sid = payload.get("session_id") or "_global"
+    assert (tmp_path / "active" / sid).exists()
+
+
+def test_disabled_session_does_not_record_a_heartbeat(tmp_path: Path) -> None:
+    """A heartbeat means "an enabled session that narrated" — nothing looser.
+
+    A recap-disabled session (and equally a headless agent) produces no audio
+    and has no listener, so it must not count as a neighbour that makes OTHER
+    sessions announce their names.
+    """
+    raw, payload = _raw_fixture("stop_payload.json")  # no state seeded → disabled
+    services, calls = _mock_services(payload["cwd"], tmp_path)
+
+    assert hook.main(raw, services=services) == 0
+    assert calls["say"] == []  # disabled: no narration
+
+    sid = payload.get("session_id") or "_global"
+    assert not (tmp_path / "active" / sid).exists()
+
+
+def test_default_enabled_session_registers_only_once_it_narrates(tmp_path: Path) -> None:
+    """``default_enabled: true`` counts from the first narration, not from open.
+
+    Enablement by per-cwd config takes a different route to the state gate than
+    ``/audio-recap:on`` does, but it must land on the same side of the
+    heartbeat: the session is enabled from the moment it opens, yet nothing of
+    ours runs until its first Stop, so it is not a neighbour until then. That is
+    the wanted semantics rather than a gap — a session that has not spoken has
+    produced no audio to disambiguate.
+    """
+
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    cfg = cwd / ".audio-recap" / "config.json"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text(json.dumps({"default_enabled": True}), encoding="utf-8")
+
+    sid = "default-on-presence-sid"
+    payload: dict[str, Any] = {
+        "session_id": sid,
+        "cwd": str(cwd),
+        "transcript": [
+            {"role": "user", "content": "explain"},
+            {"role": "assistant", "content": [{"type": "text", "text": " ".join(["hi"] * 35)}]},
+        ],
+    }
+
+    # Enabled by config alone — but silent so far, so not yet a neighbour.
+    assert not (tmp_path / "active" / sid).exists()
+
+    services, calls = _mock_services(str(cwd), tmp_path)  # notably: no seed_enabled()
+    assert hook.main(raw_payload(payload), services=services) == 0
+
+    assert len(calls["say"]) == 1  # it did narrate...
+    assert (tmp_path / "active" / sid).exists()  # ...and that is what registered it
+
+
+def test_heartbeat_marks_the_start_of_a_narration_not_its_success(tmp_path: Path) -> None:
+    """A failed ``say`` leaves the heartbeat behind — the accepted direction.
+
+    The heartbeat is written before playback on purpose: the session queued
+    behind this one on the playback lock has to see it while it is still
+    speaking. So it marks the start of a narration, not its completion, and a
+    turn whose ``say`` fails stays counted for the rest of the window. That
+    still describes an enabled narrating session, so the worst case is one
+    unneeded label — never the reverse.
+    """
+
+    def claude(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        return completed(argv, stdout="A recap.\n")
+
+    def say(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        return completed(argv, returncode=1, stderr="bad voice")
+
+    raw, payload = _raw_fixture("stop_payload.json")
+    seed_enabled(tmp_path, payload)
+    services = real_services(
+        payload["cwd"],
+        tmp_path,
+        runner=FakeProcessRunner({**audio_handlers(), "claude": claude, "say": say}),
+    )
+
+    assert hook.main(raw, services=services) == 1
+
+    sid = payload.get("session_id") or "_global"
+    assert (tmp_path / "active" / sid).exists()
+
+
+def test_turn_with_nothing_to_say_still_counts_as_a_narrating_session(tmp_path: Path) -> None:
+    """A turn that produces no speakable segment does not un-register the session.
+
+    Same trade as the failed-``say`` case above: the session is enabled and
+    narrating, it just had a quiet turn, and the heartbeat is already written
+    by the time we know there was nothing to speak.
+    """
+    payload: dict[str, Any] = {"session_id": "sid-quiet", "cwd": "/proj", "transcript": []}
+    seed_enabled(tmp_path, payload)
+    services, calls = _mock_services(payload["cwd"], tmp_path)
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+    assert calls["say"] == []  # nothing was spoken
+
+    assert (tmp_path / "active" / "sid-quiet").exists()
+
+
+def test_repeat_slash_command_registers_the_session(tmp_path: Path) -> None:
+    """A replay is a sound this session made, so it counts as presence.
+
+    The Stop hook for a ``/audio-recap:repeat`` turn speaks nothing itself —
+    the slash command already played the audio — but the session was audible,
+    so it should be named if a neighbour narrates next. The heartbeat is
+    written before the repeat short-circuit, which is what makes that work.
+    """
+    payload = _slash_command_payload(
+        "<command-name>/audio-recap:repeat</command-name>",
+        session_id="repeat-sid",
+    )
+    seed_enabled(tmp_path, payload)
+    services, calls = _mock_services("/proj", tmp_path)
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+    assert calls["say"] == []  # the Stop hook itself spoke nothing
+
+    assert (tmp_path / "active" / "repeat-sid").exists()
+
+
+def test_repeat_on_a_disabled_session_registers_nothing(tmp_path: Path) -> None:
+    """``/repeat`` still plays on a muted session, but muting means not counting."""
+    payload = _slash_command_payload(
+        "<command-name>/audio-recap:repeat</command-name>",
+        session_id="repeat-sid",
+    )  # no state seeded → disabled
+    services, _ = _mock_services("/proj", tmp_path)
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+
+    assert not (tmp_path / "active" / "repeat-sid").exists()
+
+
+def test_renamed_session_label_comes_from_custom_title(tmp_path: Path) -> None:
+    """End-to-end: a CC ``/rename`` in the transcript becomes the spoken label.
+
+    Drives the real Stop entrypoint against a JSONL carrying both a
+    ``custom-title`` row (the rename) and an ``ai-title`` row (CC's topic
+    title), with one other session live — the rename must win.
+    """
+    session_id = "sid-renamed"
+    cwd = "/proj/myapp"
+    transcript = tmp_path / f"{session_id}.jsonl"
+    rows: list[dict[str, Any]] = [
+        {"type": "ai-title", "aiTitle": "Review image content", "sessionId": session_id},
+        {"type": "custom-title", "customTitle": "jean builder", "sessionId": session_id},
+        {"type": "user", "message": {"role": "user", "content": "add a helper"}},
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    # A tool use, so the turn earns a recap segment — the label
+                    # is prepended to the recap, not to the message.
+                    {"type": "tool_use", "id": "t1", "name": "Edit", "input": {"file_path": "x"}},
+                    # Long enough to clear ``skip_if_message_words_lt`` (30), so
+                    # the turn actually earns the recap segment the label rides on.
+                    {"type": "text", "text": "Added the helper " + "and ran the tests " * 8},
+                ],
+            },
+        },
+    ]
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    payload: dict[str, Any] = {
+        "session_id": session_id,
+        "cwd": cwd,
+        "transcript_path": str(transcript),
+    }
+    seed_enabled(tmp_path, payload)
+    services, calls = _mock_services(cwd, tmp_path)
+    # One other session live → the narration is labeled.
+    services.presence_registry.heartbeat("some-other-session")
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+
+    # The recap segment is spoken first, prefixed with the rename — not with
+    # the aiTitle ("Review image content") and not with the cwd path.
+    assert calls["say"][0][-1].startswith("jean builder. ")
+
+
+def test_label_survives_a_turn_with_no_recap(tmp_path: Path) -> None:
+    """THE LIVE-AUDIO REGRESSION: a no-tool-use turn skips the recap.
+
+    The label used to be glued to the recap segment, so a turn that skipped the
+    recap (``skipped_no_tool_use``) narrated with no session name at all — even
+    under contention, after waiting its turn in the playback queue. The label
+    must ride the first segment we actually speak, which here is the message.
+    """
+    session_id = "sid-no-tools"
+    cwd = "/proj/myapp"
+    transcript = tmp_path / f"{session_id}.jsonl"
+    message = "Here is the answer " + "with plenty of words " * 8
+    rows: list[dict[str, Any]] = [
+        {"type": "custom-title", "customTitle": "jean builder", "sessionId": session_id},
+        {"type": "user", "message": {"role": "user", "content": "explain the design"}},
+        {
+            "type": "assistant",
+            # NO tool_use block → the recap is skipped (skip_if_no_tool_use).
+            "message": {"role": "assistant", "content": [{"type": "text", "text": message}]},
+        },
+    ]
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    payload: dict[str, Any] = {
+        "session_id": session_id,
+        "cwd": cwd,
+        "transcript_path": str(transcript),
+    }
+    seed_enabled(tmp_path, payload)
+    services, calls = _mock_services(cwd, tmp_path)
+    services.presence_registry.heartbeat("some-other-session")
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+
+    # Exactly one segment (the message) — and it carries the session name.
+    assert len(calls["say"]) == 1
+    assert calls["say"][0][-1].startswith("jean builder. ")

@@ -2,8 +2,11 @@
 
 Handles three explicit verbs (no toggle):
 
-- ``on`` — enable Audio Recap (persists for this session).
-- ``off`` — disable Audio Recap (persists for this session).
+- ``on`` — enable Audio Recap (persists for this session) and record
+  this session's presence heartbeat, so it counts as a live enabled
+  session right away rather than from its first narration.
+- ``off`` — disable Audio Recap (persists for this session) and drop
+  this session's presence heartbeat, so it stops counting right away.
 - ``status`` — print current state without changing it.
 
 Invalid forms print a short usage to stderr and exit 2 (convention for
@@ -42,7 +45,7 @@ def _phrase(enabled: bool) -> str:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """argv shape: ``[--session-id <id>] [--cwd <path>] <on|off|status>``.
+    """argv shape: ``[--session-id <id>] [--cwd <path>] <verb>``.
 
     ``add_help=False`` keeps the surface strict — there is no ``-h`` for
     a machine-invoked slash command. argparse errors exit 2 with a
@@ -65,7 +68,7 @@ def _resolve_cwd(cwd: str | None) -> str:
 
 
 class CommandHandler:
-    """Dispatches the three slash-command verbs against a Services graph."""
+    """Dispatches the slash-command verbs against a Services graph."""
 
     def __init__(self, services: Services) -> None:
         self._s = services
@@ -82,12 +85,24 @@ class CommandHandler:
 
     def _handle_on(self, session_id: str, cwd: str) -> int:
         self._s.state.save(State(enabled=True), session_id, cwd)
+        # Start counting as a live session immediately — symmetric with ``off``.
+        # A heartbeat means "an enabled session that is open", so enabling one
+        # must register it now rather than at its first narration: two sessions
+        # switched on side by side have to name themselves from the first
+        # narration either of them makes, not from the second.
+        self._s.presence_registry.heartbeat(session_id)
         sys.stdout.write("Audio Recap enabled.\n")
         self._log(session_id, cwd, "on", True)
         return 0
 
     def _handle_off(self, session_id: str, cwd: str) -> int:
         self._s.state.save(State(enabled=False), session_id, cwd)
+        # Stop counting as a live session immediately — symmetric with the
+        # SessionEnd hook. A heartbeat means "an enabled session that is open",
+        # and this session has just stopped being enabled. Nothing ages it out
+        # on idleness, so retiring it here is what stops the neighbours
+        # announcing their names — otherwise they would until the session closed.
+        self._s.presence_registry.remove(session_id)
         sys.stdout.write("Audio Recap disabled.\n")
         self._log(session_id, cwd, "off", False)
         return 0
