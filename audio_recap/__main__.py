@@ -10,6 +10,12 @@ Subcommands map to the existing module-level ``main()`` entrypoints:
 - ``hook``  → :func:`audio_recap.hook.main`
 - ``command`` → :func:`audio_recap.command.main`
 - ``repeat`` → :func:`audio_recap.repeat.main`
+- ``session-end`` → :func:`audio_recap.session_end.main`
+
+``session-end`` was shell (``scripts/session-end.sh``) while a heartbeat was
+refreshed before every turn and an interpreter spawn was a per-turn tax. It
+fires once per session now, so it routes through here like everything else —
+see :mod:`audio_recap.session_end` for what that bought.
 
 The sentinel rewrite handles the rare-but-real case where Claude Code
 fails to substitute ``${CLAUDE_SESSION_ID}`` into the slash-command
@@ -25,10 +31,11 @@ from __future__ import annotations
 import sys
 
 _USAGE = (
-    "usage: python -m audio_recap {hook|command|repeat} [args...]\n"
-    "       hook         — Stop-hook entry; reads JSON payload on stdin.\n"
-    "       command      — slash-command handler (on/off/status verb in args).\n"
-    "       repeat       — /audio-recap:repeat handler.\n"
+    "usage: python -m audio_recap {hook|command|repeat|session-end} [args...]\n"
+    "       hook        — Stop-hook entry; reads JSON payload on stdin.\n"
+    "       command     — slash-command handler (on/off/status verb in args).\n"
+    "       repeat      — /audio-recap:repeat handler.\n"
+    "       session-end — SessionEnd hook; reads JSON payload on stdin.\n"
 )
 
 _SENTINEL_TOKEN = "${CLAUDE_SESSION_ID}"
@@ -101,6 +108,12 @@ def main(argv: list[str] | None = None) -> int:
         from audio_recap.repeat import main as repeat_main
 
         return repeat_main(["audio_recap.repeat", *rest])
+
+    if sub == "session-end":
+        from audio_recap.session_end import main as session_end_main
+
+        # Same shape as ``hook``: CC's payload arrives on stdin, argv is unused.
+        return session_end_main(sys.stdin.buffer.read())
 
     sys.stderr.write(f"[audio-recap] unknown subcommand: {sub!r}\n")
     sys.stderr.write(_USAGE)

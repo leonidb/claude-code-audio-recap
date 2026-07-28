@@ -112,6 +112,8 @@ def test_config_shape_matches_architecture_doc() -> None:
         "dry_run",
         "default_enabled",
         "log_level",
+        "presence_window_s",
+        "label_max_words",
     }
 
 

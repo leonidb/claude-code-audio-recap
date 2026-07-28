@@ -16,8 +16,9 @@ the canonical "what did the hook decide" surface.
 State files live forever — same lifetime as Claude Code's own
 ``~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`` transcripts, so
 a session resumed months later sees the toggle it had when it last
-ran. Disk cost is negligible (~30 bytes per session). The plugin does
-not register a SessionEnd hook and does not GC.
+ran. Disk cost is negligible (~30 bytes per session) and nothing GCs
+them. (The plugin's one SessionEnd hook clears the session's presence
+heartbeat; it does not touch state.)
 
 Failure behavior:
 
@@ -137,6 +138,18 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
         return 0
     log.event("stop", session_id=turn.session_id, state="enabled")
 
+    # Presence heartbeat — mark this session as open with narration on, so
+    # concurrent sessions announce their names to each other.
+    #
+    # ``/audio-recap:on`` writes it; this refresh covers the session enabled by
+    # per-cwd ``default_enabled``, which runs no slash command, and keeps a
+    # long-lived session ahead of the orphan horizon. Past the enabled gate,
+    # which is the whole condition: a heartbeat means enabled and open.
+    #
+    # Best-effort, and the count excludes self, so this never affects its own
+    # label. See :mod:`audio_recap.presence` for what a heartbeat means.
+    services.presence_registry.heartbeat(turn.session_id)
+
     # ``/audio-recap:repeat`` short-circuits the pipeline so the user
     # doesn't hear "Replayed last narration." narrated on top of the
     # actual replay (which the slash command already produced).
@@ -153,7 +166,14 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
 
     result = Pipeline(services).run(turn, event="stop")
 
-    rc = TTSRunner(services).speak(result, session_id=turn.session_id, event="stop")
+    rc = TTSRunner(services).speak(
+        result,
+        session_id=turn.session_id,
+        cwd=turn.cwd,
+        custom_title=turn.custom_title,
+        session_title=turn.session_title,
+        event="stop",
+    )
     if rc != 0:
         return rc
 

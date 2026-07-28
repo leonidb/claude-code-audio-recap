@@ -29,13 +29,14 @@ from pathlib import Path
 from typing import Any
 
 from audio_recap.config import Config
+from audio_recap.lock import AcquireOutcome
 from audio_recap.payload import TurnPayload
 from audio_recap.process import ProcessFailed, ProcessRunner
 from audio_recap.recap import RecapFailed
 from audio_recap.services import Services
 from audio_recap.state import FileStateStore, State
 from audio_recap.summarizer import SummarizerFailed
-from audio_recap.tts import TTSFailed
+from audio_recap.tts import RenderResult, TTSFailed
 
 # ---------- Recap ----------
 
@@ -84,11 +85,17 @@ class FakeSummarizer:
 
 @dataclass
 class FakeTTS:
-    """Records each speak call. ``raises`` triggers TTSFailed propagation.
+    """Records each played text. ``raises`` triggers TTSFailed propagation.
 
-    ``metrics`` is the dict :class:`MacOSSay.speak` would return for
-    a successful two-stage call; ``calls`` collects the spoken texts
-    in order.
+    ``metrics`` is the dict :class:`MacOSSay.play` / :meth:`speak` would
+    return for a successful two-stage call. ``calls`` collects the texts that
+    were *played* (via :meth:`play` or :meth:`speak`) in order — so an
+    assertion on ``calls`` sees the label-prefixed recap the pipeline actually
+    voiced. ``render_calls`` collects the pre-lock render inputs.
+
+    Mirrors production: :meth:`render` never raises (a synthesis failure is
+    encoded in the result); :meth:`play` / :meth:`speak` raise ``raises`` when
+    set.
     """
 
     raises: TTSFailed | None = None
@@ -102,6 +109,8 @@ class FakeTTS:
         }
     )
     calls: list[str] = field(default_factory=list)
+    render_calls: list[str] = field(default_factory=list)
+    discarded: list[str] = field(default_factory=list)
 
     def speak(self, text: str) -> dict[str, Any] | None:
         self.calls.append(text)
@@ -110,6 +119,29 @@ class FakeTTS:
         if not text.strip():
             return None
         return self.metrics
+
+    def render(self, text: str) -> RenderResult | None:
+        if not text.strip():
+            return None
+        self.render_calls.append(text)
+        return RenderResult(
+            text=text,
+            handle="",
+            expected_s=1.0,
+            synth_elapsed_s=0.05,
+            aiff_duration_s=1.0,
+            use_legacy=False,
+            fallback_reason=None,
+        )
+
+    def play(self, rendered: RenderResult) -> dict[str, Any] | None:
+        self.calls.append(rendered.text)
+        if self.raises is not None:
+            raise self.raises
+        return self.metrics
+
+    def discard(self, rendered: RenderResult) -> None:
+        self.discarded.append(rendered.text)
 
 
 # ---------- StateStore ----------
@@ -332,6 +364,60 @@ class FakeProcessRunner:
         return cls(audio_handlers(afinfo_duration_s=afinfo_duration_s))
 
 
+# ---------- PlaybackLock ----------
+
+
+@dataclass
+class FakePlaybackLock:
+    """Controllable fake for :class:`audio_recap.lock.PlaybackLock`.
+
+    ``outcome`` is what :meth:`acquire` returns — ``"acquired"`` (default,
+    solo/uncontended), ``"timeout"`` / ``"error"`` / ``"unavailable"`` to
+    exercise the fail-open branches. Call counts are tracked for assertions.
+    """
+
+    outcome: AcquireOutcome = "acquired"
+    acquire_calls: int = field(default=0, init=False)
+    release_calls: int = field(default=0, init=False)
+    last_timeout_s: float | None = field(default=None, init=False)
+
+    def acquire(self, timeout_s: float = 120.0) -> AcquireOutcome:
+        self.acquire_calls += 1
+        self.last_timeout_s = timeout_s
+        return self.outcome
+
+    def release(self) -> None:
+        self.release_calls += 1
+
+
+# ---------- PresenceRegistry ----------
+
+
+@dataclass
+class FakePresenceRegistry:
+    """Controllable fake for :class:`audio_recap.presence.PresenceRegistry`.
+
+    ``others`` is the number of OTHER live sessions :meth:`active_others`
+    reports — ``0`` for a solo session, ``≥1`` for concurrent. Heartbeat and
+    remove calls are recorded so tests can assert the hooks touched/deleted.
+    """
+
+    others: int = 0
+    heartbeats: list[str] = field(default_factory=list, init=False)
+    removes: list[str] = field(default_factory=list, init=False)
+    active_others_calls: list[tuple[str, float]] = field(default_factory=list, init=False)
+
+    def heartbeat(self, session_id: str) -> None:
+        self.heartbeats.append(session_id)
+
+    def remove(self, session_id: str) -> None:
+        self.removes.append(session_id)
+
+    def active_others(self, session_id: str, window_s: float) -> int:
+        self.active_others_calls.append((session_id, window_s))
+        return self.others
+
+
 # ---------- Services builder ----------
 
 
@@ -346,6 +432,8 @@ def build_services(
     cache: Any | None = None,
     eventlog: Any | None = None,
     transcript_reader: Any | None = None,
+    playback_lock: Any | None = None,
+    presence_registry: Any | None = None,
 ) -> Services:
     """Construct a :class:`Services` with fakes filling unspecified slots.
 
@@ -360,6 +448,8 @@ def build_services(
     - ``cache`` → empty :class:`InMemoryNarrationCache`
     - ``eventlog`` → :class:`FakeEventLog`
     - ``transcript_reader`` → :class:`FakeTranscriptReader` (returns ``None``)
+    - ``playback_lock`` → :class:`FakePlaybackLock` (acquires immediately)
+    - ``presence_registry`` → solo :class:`FakePresenceRegistry` (0 others)
     """
 
     return Services(
@@ -376,6 +466,10 @@ def build_services(
         transcript_reader=transcript_reader
         if transcript_reader is not None
         else FakeTranscriptReader(),
+        playback_lock=playback_lock if playback_lock is not None else FakePlaybackLock(),
+        presence_registry=presence_registry
+        if presence_registry is not None
+        else FakePresenceRegistry(),
     )
 
 
@@ -468,6 +562,8 @@ def seed_enabled(tmp_path: Path, payload: dict[str, Any]) -> None:
 
 __all__ = [
     "FakeEventLog",
+    "FakePlaybackLock",
+    "FakePresenceRegistry",
     "FakeProcessRunner",
     "FakeRecap",
     "FakeSummarizer",
@@ -477,6 +573,7 @@ __all__ = [
     "InMemoryStateStore",
     "ProcessFailed",
     "RecapFailed",
+    "RenderResult",
     "SummarizerFailed",
     "TTSFailed",
     "audio_handlers",

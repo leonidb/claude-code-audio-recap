@@ -68,6 +68,29 @@ prereqs collapse to "macOS + Claude Code."
 are English-biased; a tight English-only release beats a multilingual
 one with shaky per-language quality.
 
+**Presence means "enabled and open"** (2026-07-28, superseding
+2026-07-23) — a heartbeat marks a session that *can make a sound*.
+`/audio-recap:on` writes it, `/audio-recap:off` and SessionEnd retire it,
+and the Stop hook refreshes it while narrating. Nothing about elapsed
+time decides whether a session counts. The plugin subscribes to two CC
+events, `Stop` and `SessionEnd`. *Why:* two earlier meanings both failed,
+in opposite directions. "Any live process" (SessionStart +
+UserPromptSubmit + Stop, whatever the state) counted sessions with
+narration switched off — including headless `claude -p` agents making
+audio for nobody — so a session speaking entirely alone announced its
+name. "Spoke recently" (2026-07-23: the narration path as sole writer,
+with a 900s idleness window) fixed that but under-counted the other way:
+two sessions open side by side stopped naming themselves once one had
+been quiet past the window, which is exactly when the listener still
+needs to know who is talking. Since the label exists to disambiguate
+things that can make sound, the property to test is being open and
+enabled, not when a session last spoke. `presence_window_s` survives only
+as an orphan horizon for a hard kill that runs no SessionEnd, and is
+correspondingly long (24h). Accepted: a session enabled by per-cwd
+`default_enabled` rather than by `/audio-recap:on` registers on its first
+narration, since no code of ours runs before then; and an orphan counts
+until the horizon passes, costing at most one unneeded label.
+
 **Identifier conventions** (2026-04-21) — display name "Audio Recap";
 marketplace + repo slug `claude-code-audio-recap`; plugin manifest
 `name` and on-disk segment `audio-recap`; Python module `audio_recap`;

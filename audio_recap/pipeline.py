@@ -31,12 +31,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from audio_recap.eventlog import EventLog
+from audio_recap.label import resolve_label
 from audio_recap.payload import TurnPayload
 from audio_recap.recap import RecapFailed
 from audio_recap.services import Services
 from audio_recap.speakable import apply_transforms
 from audio_recap.summarizer import SummarizerFailed
-from audio_recap.tts import TTSFailed
+from audio_recap.tts import RenderResult, TTSFailed
+
+# Bounded wait for the machine-wide playback lock. Generous on purpose: the
+# lock auto-releases on process death so it barely fires, and a timeout means
+# "play anyway" (occasional overlap) — never a hung or silent session.
+_LOCK_TIMEOUT_S = 120.0
 
 _VERBATIM_FALLBACK_WORD_CAP = 150
 _VERBATIM_FALLBACK_CUE = "… and more — full output on screen."
@@ -339,6 +345,26 @@ class TTSRunner:
     eventlog line so the existing telemetry shape (``synth_elapsed_s``,
     ``aiff_duration_s``, ``afplay_elapsed_s``, ``say_path``,
     ``fallback_reason``) survives the refactor.
+
+    Multi-session coordination (v2):
+
+    - **Serialise** playback across the user's concurrent sessions via the
+      machine-wide :class:`audio_recap.lock.PlaybackLock`. Synthesis (render)
+      runs BEFORE the lock so only ``afplay`` is serialised; the ~1s synth
+      overlaps the queue wait. Fail-open: a lock timeout / error / unavailable
+      lock plays anyway rather than going silent.
+    - **Label** the first spoken segment with a short session name when ≥1
+      OTHER session is open with narration on (presence registry), so the
+      listener knows which session they're hearing. A session speaking alone
+      stays clean.
+
+    Known v1 limitation (documented, not fixed): there is NO speaker-change
+    suppression — if the same session narrates twice running while others are
+    live, it re-announces its label both times. It's a deliberate trade with
+    the pre-render architecture (the label is baked into audio before the lock,
+    but "was I the last speaker" is only knowable at play time) and the
+    non-FIFO lock ordering. A live-``say`` label (spoken under the lock) is the
+    v2 upgrade if repeated labels are reported as friction.
     """
 
     def __init__(self, services: Services) -> None:
@@ -349,6 +375,9 @@ class TTSRunner:
         result: PipelineResult,
         *,
         session_id: str,
+        cwd: str = "",
+        custom_title: str | None = None,
+        session_title: str | None = None,
         event: str = "stop",
     ) -> int:
         services = self._s
@@ -393,9 +422,96 @@ class TTSRunner:
             info_fields["recap_text"] = recap or ""
             info_fields["message_text"] = message or ""
         log.event(event, **info_fields)
+        # dry_run skips the lock entirely: no audio plays, so nothing to
+        # serialise, and no label (the recap text stays clean for the eval
+        # harvest which joins on it).
         if config.dry_run:
             return 0
 
+        # --- Part B: presence-gated session label ---
+        # Label whenever ≥1 OTHER session narrated within the window
+        # (presence-based, not collision-based) so the only session narrating
+        # stays clean. Baked into the text now, before render, so the label is
+        # part of the pre-rendered audio. Registry failure → 0 others →
+        # unlabeled (never spurious).
+        #
+        # The label rides the FIRST segment we're going to speak — the recap
+        # when there is one, otherwise the message. It used to ride the recap
+        # only, which silently dropped the name on every turn that skipped the
+        # recap (no tool use, or a message too short to warrant one): the
+        # listener heard an unattributed narration mid-contention, which is
+        # exactly the case this feature exists for.
+        #
+        # Prefixing, not a separate segment: a two-word label renders a ~1s
+        # AIFF, which trips the short-aiff guard in macos_say, and it would add
+        # a second render+play round trip under the lock plus dead air before
+        # the narration. This is a string concat on text we already assemble.
+        active_others = services.presence_registry.active_others(
+            session_id, config.presence_window_s
+        )
+        if active_others >= 1 and (recap or message):
+            label = resolve_label(
+                session_id=session_id,
+                cwd=cwd,
+                custom_title=custom_title,
+                session_title=session_title,
+                transforms=config.speakable_transforms,
+                max_words=config.label_max_words,
+            )
+            if recap:
+                recap = f"{label}. {recap}"
+            else:
+                message = f"{label}. {message}"
+            log.event(
+                event,
+                session_id=session_id,
+                session_label=label,
+                active_sessions=active_others,
+            )
+
+        # --- Part A (pre-render): synthesise every segment BEFORE the lock ---
+        # so the ~1s synth overlaps the queue wait; only afplay is serialised.
+        rendered: list[tuple[str, RenderResult]] = []
+        for segment_name, text in (("recap", recap), ("message", message)):
+            if not text:
+                continue
+            rr = services.tts.render(text)
+            if rr is not None:
+                rendered.append((segment_name, rr))
+
+        if not rendered:
+            log.event(event, session_id=session_id, say_done=True, elapsed_s=0.0)
+            return 0
+
+        # --- Part A (lock + play): serialise only playback ---
+        lock = services.playback_lock
+        lock_started = time.monotonic()
+        lock_outcome = lock.acquire(timeout_s=_LOCK_TIMEOUT_S)
+        log.event(
+            event,
+            session_id=session_id,
+            lock_outcome=lock_outcome,
+            lock_wait_s=round(time.monotonic() - lock_started, 3),
+            active_sessions=active_others,
+        )
+        try:
+            return self._play_all(rendered, recap, message, session_id, event)
+        finally:
+            lock.release()
+
+    def _play_all(
+        self,
+        rendered: list[tuple[str, RenderResult]],
+        recap: str | None,
+        message: str,
+        session_id: str,
+        event: str,
+    ) -> int:
+        """Play each pre-rendered segment under the lock; aggregate telemetry."""
+
+        services = self._s
+        log = services.eventlog
+        config = services.config
         started = time.monotonic()
         diag_synth_s = 0.0
         diag_aiff_s = 0.0
@@ -403,11 +519,14 @@ class TTSRunner:
         diag_segments_seen = 0
         diag_fell_back = False
         diag_fallback_reasons: list[str] = []
+        # Every segment was pre-rendered (temp files created) before the lock.
+        # ``play`` releases the handle it's given; a segment we never reach
+        # (an earlier one raised) is released here so a pre-render can't leak.
+        played = 0
         try:
-            for segment_name, text in (("recap", recap), ("message", message)):
-                if not text:
-                    continue
-                metrics = services.tts.speak(text)
+            for idx, (segment_name, rr) in enumerate(rendered):
+                metrics = services.tts.play(rr)
+                played = idx + 1
                 if metrics is None:
                     continue
                 diag_synth_s += max(0.0, float(metrics.get("synth_elapsed_s") or 0.0))
@@ -436,6 +555,9 @@ class TTSRunner:
                 traceback=traceback.format_exc(),
             )
             return 1
+        finally:
+            for _, rr in rendered[played:]:
+                services.tts.discard(rr)
 
         if diag_segments_seen > 0:
             spoken_words = len((recap or "").split()) + len((message or "").split())

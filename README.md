@@ -94,6 +94,15 @@ A Claude Code plugin. On every Stop event, the hook:
 
 Each Stop hook is a fresh one-shot process. Full architecture in [`docs/architecture.md`](docs/architecture.md).
 
+**Several sessions at once.** Narrations queue instead of talking over each other, and each session says which one it is:
+
+```
+builder. Edited three files and ran the tests.
+docs. Rewrote the install section.
+```
+
+Name your sessions with Claude Code's `/rename` — it's what makes the announcement useful. Otherwise it falls back to the auto-generated title, then the project path. A session running on its own stays unlabeled, and sessions with Audio Recap off never make another one announce itself.
+
 ## What it costs
 
 Audio Recap calls `claude -p --model claude-haiku-4-5` once per narrated turn - for the recap, and again when a reply is long enough to summarize. That's **additional model usage**: it draws on the same Claude Code subscription or API credits your coding session already uses. It runs on Haiku, though - the cheapest model, far below the cost of the model doing your actual coding - so the per-turn overhead is small next to a normal session. No separate API key or account: it uses your existing Claude Code auth.

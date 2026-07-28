@@ -47,9 +47,15 @@ class FileTranscriptReader:
         loaded = load_turn_content_from_jsonl(str(path))
         if loaded is None:
             return None
-        user_content, content_blocks = loaded
+        user_content, content_blocks, _custom_title, _session_title = loaded
         if not content_blocks:
             return None
+        # The session titles are dropped on purpose: this reader exists for
+        # ``/audio-recap:repeat``, which speaks through its own path and never
+        # labels (it doesn't take the playback lock either — both are the same
+        # open question about what a replay should do mid-narration). Re-attach
+        # them here the day /repeat routes through ``TTSRunner``.
+        #
         # Synthesize a payload dict so PayloadParser produces a canonical
         # TurnPayload (slash-command detection, tool-use extraction, etc.
         # all share one code path). from_dict is a log-free staticmethod.

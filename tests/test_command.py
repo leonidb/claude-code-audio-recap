@@ -123,6 +123,50 @@ def test_off_is_idempotent(services: Services, store: FileStateStore) -> None:
     assert store.load(SID, CWD).enabled is False
 
 
+# ---------- presence: off retires the session ----------
+
+
+def test_off_removes_the_presence_heartbeat(services: Services, tmp_path: Path) -> None:
+    """Symmetric with SessionEnd: switching narration off stops counting now.
+
+    A heartbeat means "an enabled session that is open". Leaving one behind
+    would keep other sessions announcing their names against a session that has
+    been silenced on purpose — and since nothing ages it out on idleness, it
+    would do so until that session closed.
+    """
+    services.presence_registry.heartbeat(SID)
+    assert (tmp_path / "active" / SID).exists()
+
+    assert _run(services, "off") == 0
+
+    assert not (tmp_path / "active" / SID).exists()
+
+
+def test_off_removes_only_this_sessions_heartbeat(services: Services, tmp_path: Path) -> None:
+    """A session that never narrated turns off cleanly, and leaves others alone."""
+    services.presence_registry.heartbeat("someone-else")
+
+    assert _run(services, "off") == 0
+
+    assert not (tmp_path / "active" / SID).exists()
+    assert (tmp_path / "active" / "someone-else").exists()
+
+
+def test_on_registers_the_session_immediately(services: Services, tmp_path: Path) -> None:
+    """Switching narration on counts from that moment, not from the first recap.
+
+    A heartbeat means "an enabled session that is open". Waiting for the first
+    narration would leave two sessions switched on side by side unable to name
+    each other until the SECOND of them had spoken — the first narration, when
+    the listener has the least context about who is talking, would be the one
+    that went unlabeled.
+    """
+
+    assert _run(services, "on") == 0
+
+    assert (tmp_path / "active" / SID).exists()
+
+
 # ---------- per-session keying ----------
 
 
@@ -287,3 +331,20 @@ def test_off_persists_after_default_enabled_true(tmp_path: Path) -> None:
 
 def test_main_is_callable() -> None:
     assert callable(command.main)
+
+
+# ---------- the command surface is on/off/status only ----------
+
+
+def test_label_verb_is_rejected(services: Services, capsys: pytest.CaptureFixture[str]) -> None:
+    """``label`` was removed — CC's own ``/rename`` is the session-naming surface."""
+    assert _run(services, "label", "sensei") == 2
+    assert "usage" in capsys.readouterr().err
+
+
+def test_verb_takes_no_trailing_arguments(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The parser has no positional beyond the verb — stray tokens exit 2."""
+    assert _run(services, "on", "extra") == 2
+    assert "usage" in capsys.readouterr().err

@@ -46,6 +46,29 @@ _OWN_COMMAND_TAGS = {
 }
 
 
+#: Session id used when Claude Code's payload carries none. Every hook that
+#: keys anything on the session — state, the presence heartbeat — has to agree
+#: on it, or a fire that writes under the sentinel is retired under some other
+#: name (or not at all).
+GLOBAL_SESSION_ID = "_global"
+
+
+def session_id_from_payload(payload: dict[str, Any]) -> str:
+    """Resolve the session id a CC hook payload refers to.
+
+    The canonical resolution for *any* hook fed CC's JSON on stdin, not just
+    Stop: a missing, non-string, or empty ``session_id`` becomes
+    :data:`GLOBAL_SESSION_ID`, the same fallback ``run.sh`` applies when CC
+    fails to substitute ``${CLAUDE_SESSION_ID}`` into a slash command.
+
+    Shared so the hook that WRITES a heartbeat and the hook that DELETES it
+    cannot disagree about which session a payload names.
+    """
+
+    sid_raw = payload.get("session_id")
+    return sid_raw if isinstance(sid_raw, str) and sid_raw else GLOBAL_SESSION_ID
+
+
 @dataclass(frozen=True)
 class ToolUse:
     """One tool invocation from a Claude turn.
@@ -78,6 +101,16 @@ class TurnPayload:
     own_command: str | None = None
     transcript_path: str | None = None
     last_assistant_message_field: str | None = None
+    # The name the user gave this session with Claude Code's own ``/rename``
+    # (``custom-title`` row in the JSONL transcript). Tier 1 of the
+    # spoken-label naming ladder (see :func:`audio_recap.label.resolve_label`).
+    # ``None`` when the session was never renamed.
+    custom_title: str | None = None
+    # Claude Code's auto-generated *topic* title (``ai-title`` row), e.g.
+    # "Review image content". Not a session name and not user-settable — tier 2
+    # of the ladder, below the rename. ``None`` when the transcript is inline
+    # (no title rows) or CC hasn't generated one.
+    session_title: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @cached_property
@@ -144,28 +177,73 @@ def _detect_own_slash_command(content: str) -> str | None:
     return None
 
 
+def _titles_from_rows(rows: list[Any]) -> tuple[str | None, str | None]:
+    """Return ``(custom_title, session_title)`` from the transcript rows.
+
+    CC writes two kinds of title row into the JSONL, and they mean different
+    things:
+
+    - ``{"type": "custom-title", "customTitle": "..."}`` — the name the user
+      gave the session with CC's ``/rename``.
+    - ``{"type": "ai-title", "aiTitle": "..."}`` — CC's auto-generated *topic*
+      title ("Review image content"). Not a session name.
+
+    A session can carry either, both, or neither; the last row of each kind
+    wins (a session can be renamed more than once).
+
+    Both row types are undocumented Claude Code internals — the keys could
+    change on any CC version bump. A shape change degrades to no title, which
+    the naming ladder tolerates (it falls through to the cwd basename).
+    """
+
+    custom_title: str | None = None
+    session_title: str | None = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_type = row.get("type")
+        if row_type == "custom-title":
+            value = row.get("customTitle")
+            if isinstance(value, str) and value.strip():
+                custom_title = value
+        elif row_type == "ai-title":
+            value = row.get("aiTitle")
+            if isinstance(value, str) and value.strip():
+                session_title = value
+    return custom_title, session_title
+
+
 def load_turn_content_from_jsonl(
     transcript_path: str,
-) -> tuple[str, list[dict[str, Any]]] | None:
-    """Aggregate the last user prompt + assistant blocks from a JSONL transcript.
+) -> tuple[str, list[dict[str, Any]], str | None, str | None] | None:
+    """Aggregate the last user prompt + assistant blocks + both session titles.
 
     Real CC Stop payloads carry ``transcript_path`` (a JSONL file) instead
     of an inline ``transcript`` array. Walk back to the most recent
     user-typed prompt (string content, not ``tool_result`` blocks) and
     collect every assistant content block since then.
 
-    Returns ``(user_content, assistant_blocks)``: the user content is the
-    raw string the JSONL carries (slash-command detection parses the
-    leading ``<command-name>...</command-name>`` tag from it). Returns
-    ``None`` on read / parse errors or when no string-content user prompt
-    exists, so callers can fall back to message-only narration.
+    Returns ``(user_content, assistant_blocks, custom_title, session_title)``:
+    the user content is the raw string the JSONL carries (slash-command
+    detection parses the leading ``<command-name>...</command-name>`` tag from
+    it); ``custom_title`` is the user's ``/rename`` and ``session_title`` is
+    CC's ``aiTitle`` (each ``None`` when absent). Returns ``None`` on read /
+    parse errors or when no string-content user prompt exists, so callers can
+    fall back to message-only narration.
     """
 
     try:
         with open(transcript_path, encoding="utf-8") as f:
             rows = [json.loads(line) for line in f if line.strip()]
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        # UnicodeDecodeError is a ValueError, NOT an OSError or a
+        # JSONDecodeError: a single bad byte (or a partially-flushed multi-byte
+        # sequence, which the Stop-hook transcript race can hand us) would
+        # otherwise escape as an unhandled crash. Narration degrades to
+        # message-only instead.
         return None
+
+    custom_title, session_title = _titles_from_rows(rows)
 
     last_user_idx: int | None = None
     for i in range(len(rows) - 1, -1, -1):
@@ -198,7 +276,7 @@ def load_turn_content_from_jsonl(
         content = msg.get("content")
         if isinstance(content, list):
             aggregated.extend(c for c in content if isinstance(c, dict))
-    return user_content, aggregated
+    return user_content, aggregated, custom_title, session_title
 
 
 def _last_user_content_from_inline(
@@ -323,8 +401,7 @@ class PayloadParser:
         ``staticmethod`` callable without an ``EventLog``.
         """
 
-        sid_raw = payload.get("session_id")
-        session_id = sid_raw if isinstance(sid_raw, str) and sid_raw else "_global"
+        session_id = session_id_from_payload(payload)
         cwd_raw = payload.get("cwd")
         cwd = cwd_raw if isinstance(cwd_raw, str) else ""
 
@@ -335,6 +412,8 @@ class PayloadParser:
             last_assistant_field if isinstance(last_assistant_field, str) else None
         )
 
+        custom_title: str | None = None
+        session_title: str | None = None
         inline_transcript = payload.get("transcript")
         if isinstance(inline_transcript, list):
             user_content = _last_user_content_from_inline(
@@ -346,7 +425,7 @@ class PayloadParser:
         elif transcript_path is not None:
             loaded = load_turn_content_from_jsonl(transcript_path)
             if loaded is not None:
-                user_content, assistant_blocks = loaded
+                user_content, assistant_blocks, custom_title, session_title = loaded
             else:
                 user_content = ""
                 assistant_blocks = []
@@ -364,6 +443,8 @@ class PayloadParser:
             own_command=own_command,
             transcript_path=transcript_path,
             last_assistant_message_field=last_assistant_message_field,
+            custom_title=custom_title,
+            session_title=session_title,
             raw=payload,
         )
 

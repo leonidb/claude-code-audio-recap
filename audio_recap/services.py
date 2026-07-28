@@ -33,6 +33,13 @@ from pathlib import Path
 from audio_recap.cache import FileNarrationCache, NarrationCache
 from audio_recap.config import Config
 from audio_recap.eventlog import EventLog, FileEventLog
+from audio_recap.lock import FcntlPlaybackLock, NullPlaybackLock, PlaybackLock
+from audio_recap.paths import (
+    DEFAULT_AUDIO_RECAP_ROOT,
+    DEFAULT_CC_TRANSCRIPT_ROOT,
+    DEFAULT_LOG_PATH,
+)
+from audio_recap.presence import PresenceRegistry, default_presence_registry
 from audio_recap.process import ProcessRunner, SubprocessProcessRunner
 from audio_recap.recap import Recap
 from audio_recap.recap.claude_p import ClaudePRecap
@@ -43,18 +50,12 @@ from audio_recap.transcript import FileTranscriptReader, TranscriptReader
 from audio_recap.tts import TTS
 from audio_recap.tts.macos_say import MacOSSay
 
-# The plugin's own storage base. The event log, narration cache, and
-# per-session on/off state all nest under it — ``from_config`` derives
-# each from this one root, so a Linux/Windows port touches just this
-# block. The log nests one level deeper (under ``logs/``) than the
-# cache and state dirs; that asymmetry is the layout's, not a knob.
-DEFAULT_AUDIO_RECAP_ROOT = Path.home() / ".claude" / "audio-recap"
-DEFAULT_LOG_PATH = DEFAULT_AUDIO_RECAP_ROOT / "logs" / "audio-recap.log"
-
-# CC's own per-session transcript dir (``~/.claude/projects/<encoded-cwd>/
-# <sid>.jsonl``). The plugin only *reads* from here, so it stays a
-# separate knob — it is not the plugin's storage.
-DEFAULT_CC_TRANSCRIPT_ROOT = Path.home() / ".claude" / "projects"
+# The production filesystem layout (``DEFAULT_AUDIO_RECAP_ROOT`` and friends)
+# lives in :mod:`audio_recap.paths` — a dependency-light module so a caller can
+# resolve the storage root without importing this full graph, and so the layout
+# the SessionEnd shell hook hardcodes has exactly one Python counterpart to be
+# pinned against. Re-exported here for the existing call sites that import them
+# from ``audio_recap.services``.
 
 # Env var that redirects the event log without a code change — set it
 # to keep a debugging session's hook fires out of the developer's real
@@ -91,6 +92,22 @@ def default_event_log(log_path: Path | None = None) -> FileEventLog:
     return FileEventLog(log_path)
 
 
+def _build_playback_lock(audio_recap_root: Path, eventlog: EventLog) -> PlaybackLock:
+    """Build the real flock lock, or a fail-open :class:`NullPlaybackLock`.
+
+    If the lockfile can't be created (unwritable path, unusual FS, container
+    quirks) the narration must still play — a silenced session is worse than an
+    occasional overlap. Log the degradation so it's visible, then proceed with
+    the no-op lock.
+    """
+
+    try:
+        return FcntlPlaybackLock(audio_recap_root / "playback.lock")
+    except OSError as e:
+        eventlog.event("stop", lock_unavailable=True, error=str(e))
+        return NullPlaybackLock()
+
+
 @dataclass
 class Services:
     """Wired-up production dependencies for one run.
@@ -109,6 +126,8 @@ class Services:
     cache: NarrationCache
     eventlog: EventLog
     transcript_reader: TranscriptReader
+    playback_lock: PlaybackLock
+    presence_registry: PresenceRegistry
 
     @classmethod
     def from_config(
@@ -164,6 +183,8 @@ class Services:
             cache=FileNarrationCache(audio_recap_root / "cache"),
             eventlog=actual_eventlog,
             transcript_reader=FileTranscriptReader(transcript_root),
+            playback_lock=_build_playback_lock(audio_recap_root, actual_eventlog),
+            presence_registry=default_presence_registry(audio_recap_root),
         )
 
 
