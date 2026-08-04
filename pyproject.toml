@@ -1,6 +1,6 @@
 [project]
 name = "claude-code-audio-recap"
-version = "0.1.1"
+version = "0.2.0"
 description = "Audio Recap — a Claude Code plugin that listens to each assistant turn: a one-sentence recap of what Claude did, then the message itself, with long replies summarized for ears."
 readme = "README.md"
 requires-python = ">=3.9"
