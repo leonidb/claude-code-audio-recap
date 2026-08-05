@@ -35,6 +35,15 @@ else
 fi
 
 export PYTHONPATH="${PLUGIN_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+
+# ``python3 -m`` puts the process working directory first on sys.path, so a
+# stray ``audio_recap/`` directory in the user's CWD (a checkout of this repo
+# or a git worktree) would shadow the installed plugin and run stale code.
+# cd into the plugin root so the installed package always wins. Production
+# never derives its working directory from the process anyway: the Stop hook
+# reads ``cwd`` from its stdin payload and the slash commands pass ``--cwd "$PWD"``.
+cd "$PLUGIN_ROOT"
+
 # ``python3`` resolves via the user's PATH — on macOS that is the
 # system interpreter (/usr/bin/python3) unless they have installed
 # another. Audio Recap is stdlib-only and floors at 3.9, so whatever
