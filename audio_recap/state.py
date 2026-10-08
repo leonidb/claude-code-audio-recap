@@ -105,12 +105,11 @@ class StateStore(Protocol):
     """Per-session on/off persistence seam.
 
     Production: :class:`FileStateStore` (disk-backed). Tests inject an
-    in-memory fake. ``default_enabled`` only fills in the missing-file
-    branch — once a state file exists it stays authoritative.
+    in-memory fake. A session with no state file is off.
     """
 
-    def load(self, session_id: str, cwd: str, *, default_enabled: bool = False) -> State:
-        """Return persisted state, or ``State(enabled=default_enabled)`` if absent."""
+    def load(self, session_id: str, cwd: str) -> State:
+        """Return persisted state, or ``State(enabled=False)`` if absent."""
         ...
 
     def save(self, state: State, session_id: str, cwd: str) -> None:
@@ -128,39 +127,34 @@ class FileStateStore:
     def __init__(self, state_root: Path) -> None:
         self._state_root = state_root
 
-    def load(self, session_id: str, cwd: str, *, default_enabled: bool = False) -> State:
-        return self._load(_path_for(session_id, self._state_root), default_enabled)
+    def load(self, session_id: str, cwd: str) -> State:
+        return self._load(_path_for(session_id, self._state_root))
 
     def save(self, state: State, session_id: str, cwd: str) -> None:
         self._save(state, _path_for(session_id, self._state_root))
 
     @staticmethod
-    def _load(path: Path, default_enabled: bool) -> State:
+    def _load(path: Path) -> State:
         """Read the per-session on/off state from ``path``.
 
         Resolution order:
 
-        - **Missing file** → ``State(enabled=default_enabled)``. The
-          ``default_enabled`` knob lets a per-cwd
-          ``.audio-recap/config.json`` opt a worktree into auto-on for
-          fresh sessions; ``False`` (the standing default) preserves the
-          original "fresh session is silent until ``/audio-recap:on``"
-          behavior.
+        - **Missing file** → ``State(enabled=False)``: a fresh session is
+          silent until ``/audio-recap:on``.
         - **Unreadable file (permissions, not UTF-8) / corrupt JSON /
           wrong-shape payload / non-bool ``enabled`` / missing
-          ``enabled`` key** → ``State(enabled=False)`` regardless
-          of ``default_enabled``. Explicit failure must surface as silence
-          so a user with a broken file isn't misled into thinking
-          audio is live.
-        - **Existing well-formed file** → returns the persisted value;
-          ``default_enabled`` is irrelevant. Once a session has toggled
-          (``/audio-recap:on`` / ``/audio-recap:off``) the file wins.
+          ``enabled`` key** → ``State(enabled=False)``. Explicit failure
+          must surface as silence so a user with a broken file isn't
+          misled into thinking audio is live.
+        - **Existing well-formed file** → returns the persisted value.
+          Once a session has toggled (``/audio-recap:on`` /
+          ``/audio-recap:off``) the file wins.
         """
 
         try:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
-            return State(enabled=default_enabled)
+            return State(enabled=False)
         except (OSError, UnicodeDecodeError) as e:
             _log_corrupt(path, type(e).__name__)
             return State(enabled=False)

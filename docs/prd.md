@@ -110,25 +110,12 @@ plugin warns to stderr and falls back to a machine-wide state file. When
 off, the Stop hook still fires but the plugin exits cleanly — no
 `claude -p`, no audio, no side effects.
 
-## Tuning knobs
+## Debugging
 
-Per-cwd overrides at `<cwd>/.audio-recap/config.json`, picked up on the
-next fire. The recognized keys:
-
-- **`default_enabled`** (default `false`) — start a fresh session in
-  this cwd with narration on, without running `/audio-recap:on`.
-- **`log_level`** (default `"info"`) — `"trace"` turns on the verbose
-  event log (full payloads, `claude -p` prompts/responses, tracebacks).
-- **`dry_run`** (default `false`) — run recap + summarization + logging
-  but skip the `say` subprocess; for test runners.
-- **`tts.trace_speech_log`** (default `false`) — capture a per-fire
-  macOS speech-subsystem log excerpt (requires `log_level: trace`).
-- **`tts.baseline_wpm`** (default `142`) — reference speaking rate the
-  per-fire telemetry compares against.
-
-Other behavior (recap model, summarize threshold, voice, rate) is fixed
-at the `audio_recap/config.py` defaults in V1 — not exposed in the
-per-cwd file.
+There is no config file: behavior is fixed at the `audio_recap/config.py`
+defaults. Setting `AUDIO_RECAP_LOG_LEVEL=trace` (for hooks, in
+`~/.claude/settings.json` under `env`) turns on the verbose event log:
+full payloads, `claude -p` prompts and responses, tracebacks.
 
 ## Out of scope for V1
 

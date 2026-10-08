@@ -138,6 +138,25 @@ def test_hook_writes_nothing_for_a_disabled_session(log_path: Path, tmp_path: Pa
     assert not (log_path.parent / ".last_fire_stop").exists()
 
 
+def test_hook_traces_one_line_for_a_disabled_session(log_path: Path, tmp_path: Path) -> None:
+    """With trace on, an off session leaves exactly one TRACE ``state=disabled`` line."""
+
+    from audio_recap import hook
+
+    payload = {"session_id": "log-test-sid", "cwd": "/proj", "hook_event_name": "Stop"}
+    services = real_services(
+        "/proj",
+        tmp_path,
+        runner=FakeProcessRunner(),
+        eventlog=FileEventLog(log_path, trace_enabled=True),
+    )
+
+    assert hook.main(raw_payload(payload), services=services) == 0
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert " TRACE event=stop session_id=log-test-sid state=disabled" in lines[0]
+
+
 def test_command_emits_action_and_verb(log_path: Path, tmp_path: Path) -> None:
     from audio_recap import command
 

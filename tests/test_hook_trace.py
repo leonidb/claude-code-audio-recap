@@ -1,7 +1,7 @@
 """TRACE-level emission for the Stop hook end-to-end.
 
 Exercises the wiring between :mod:`audio_recap.hook` and
-:mod:`audio_recap.eventlog` — the ``log_level`` config gate, the
+:mod:`audio_recap.eventlog` — the ``AUDIO_RECAP_LOG_LEVEL`` gate, the
 payload trace, the prompt+response trace from the recap and summarizer
 backends, and the exception-traceback trace on failure paths. The
 file-shape and escape-rules are covered by ``test_eventlog_trace.py``;
@@ -11,16 +11,17 @@ supposed to.
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from audio_recap import hook
+from audio_recap.eventlog import FileEventLog
 from audio_recap.services import Services
 from tests.fakes import (
     FakeProcessRunner,
     audio_handlers,
+    event_log_path,
     raw_payload,
     real_services,
     seed_enabled,
@@ -34,22 +35,18 @@ def _stub_runner(claude_stdout: str = "Edited stuff.") -> FakeProcessRunner:
     return FakeProcessRunner({**audio_handlers(), "claude": claude})
 
 
-def _services(cwd: str, tmp_path: Path, runner: FakeProcessRunner) -> Services:
-    """Production graph wired to ``runner`` + tmp roots, for ``cwd``."""
+def _services(
+    cwd: str, tmp_path: Path, runner: FakeProcessRunner, *, trace: bool = False
+) -> Services:
+    """Production graph wired to ``runner`` + tmp roots, for ``cwd``.
 
-    return real_services(cwd, tmp_path, runner=runner)
-
-
-def _write_trace_config(cwd: Path) -> None:
-    """Drop a per-cwd config that turns the event log up to TRACE.
-
-    TRACE is opt-in via ``Config.log_level``; the hook reads
-    ``<cwd>/.audio-recap/config.json`` when it builds the event log.
+    ``trace`` injects a TRACE-enabled event log at the graph's log path,
+    which is what ``AUDIO_RECAP_LOG_LEVEL=trace`` makes the composition
+    root build.
     """
 
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"log_level": "trace"}), encoding="utf-8")
+    eventlog = FileEventLog(event_log_path(tmp_path), trace_enabled=True) if trace else None
+    return real_services(cwd, tmp_path, runner=runner, eventlog=eventlog)
 
 
 def _enabled_payload(cwd: str = "/proj") -> dict[str, Any]:
@@ -92,7 +89,7 @@ def _enabled_payload(cwd: str = "/proj") -> dict[str, Any]:
 
 
 def test_trace_off_by_default_omits_payload_and_prompts(tmp_path: Path, log_path: Path) -> None:
-    """No ``log_level`` config → INFO default → TRACE lines are silenced."""
+    """Trace not turned on → INFO default → TRACE lines are silenced."""
 
     payload = _enabled_payload()
     seed_enabled(tmp_path, payload)
@@ -106,12 +103,13 @@ def test_trace_off_by_default_omits_payload_and_prompts(tmp_path: Path, log_path
 
 
 def test_trace_on_emits_payload_and_recap_io(tmp_path: Path, log_path: Path) -> None:
-    """``log_level: trace`` config → the payload + recap I/O are logged."""
+    """TRACE on → the payload + recap I/O are logged."""
 
-    _write_trace_config(tmp_path)
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(str(tmp_path), tmp_path, _stub_runner(claude_stdout="Edited a file.\n"))
+    services = _services(
+        str(tmp_path), tmp_path, _stub_runner(claude_stdout="Edited a file.\n"), trace=True
+    )
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -130,10 +128,9 @@ def test_trace_on_emits_payload_and_recap_io(tmp_path: Path, log_path: Path) -> 
 def test_trace_on_emits_segment_pre_post_transform(tmp_path: Path, log_path: Path) -> None:
     """TRACE on: pre/post-transform text is logged for each segment."""
 
-    _write_trace_config(tmp_path)
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(str(tmp_path), tmp_path, _stub_runner())
+    services = _services(str(tmp_path), tmp_path, _stub_runner(), trace=True)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -148,15 +145,13 @@ def test_trace_on_logs_traceback_when_recap_subprocess_fails(
 ) -> None:
     """A claude -p timeout is followed by a TRACE traceback line."""
 
-    _write_trace_config(tmp_path)
-
     def claude(argv: list[str], **_: Any) -> BaseException:
         return subprocess.TimeoutExpired(cmd="claude", timeout=15.0)
 
     runner = FakeProcessRunner({**audio_handlers(), "claude": claude})
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(str(tmp_path), tmp_path, runner)
+    services = _services(str(tmp_path), tmp_path, runner, trace=True)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")

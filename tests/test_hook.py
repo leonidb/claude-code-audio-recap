@@ -10,6 +10,7 @@ import pytest
 
 from audio_recap import hook
 from audio_recap.cache import FileNarrationCache
+from audio_recap.eventlog import FileEventLog
 from audio_recap.services import Services
 from audio_recap.state import FileStateStore, State
 from tests.fakes import (
@@ -93,15 +94,17 @@ class _CountingRecap:
         return self._inner.generate(turn)
 
 
-def _mock_services(cwd: str, tmp_path: Path) -> tuple[Services, dict[str, list[Any]]]:
+def _mock_services(
+    cwd: str, tmp_path: Path, *, dry_run: bool = False
+) -> tuple[Services, dict[str, list[Any]]]:
     """Real component graph + a FakeProcessRunner with default-success handlers.
 
     Returns ``(services, calls)``. ``calls`` collects per-binary argv
     (claude / say / afinfo / afplay) plus the rule-based fallback's
     invocations, so test bodies assert directly off it. The real
-    :meth:`Services.from_config` runs (per-cwd config overrides under
-    ``cwd`` apply), but no subprocess is spawned and every file-backed
-    service is rooted under ``tmp_path``.
+    :meth:`Services.from_config` runs (``dry_run`` passes through, as the
+    eval harness passes it), but no subprocess is spawned and every
+    file-backed service is rooted under ``tmp_path``.
     """
 
     calls: dict[str, list[Any]] = {
@@ -111,7 +114,9 @@ def _mock_services(cwd: str, tmp_path: Path) -> tuple[Services, dict[str, list[A
         "afinfo": [],
         "afplay": [],
     }
-    services = real_services(cwd, tmp_path, runner=_runner_with_default_handlers(calls))
+    services = real_services(
+        cwd, tmp_path, runner=_runner_with_default_handlers(calls), dry_run=dry_run
+    )
     services.recap_fallback = _CountingRecap(services.recap_fallback, calls["rule_based"])
     return services, calls
 
@@ -912,33 +917,25 @@ def test_short_message_is_not_summarized(tmp_path: Path) -> None:
     assert calls["say"][1][-1] == short_message
 
 
-# ---------- 055: per-cwd dry_run + tts_status + text snippets ----------
+# ---------- 055: dry_run + tts_status + text snippets ----------
 
 
-def _write_trace_config(cwd: Path) -> None:
-    """Drop a per-cwd config that turns the event log up to TRACE.
+def _trace_log(log_path: Path) -> FileEventLog:
+    """A TRACE-enabled event log at ``log_path``, injected into the graph.
 
     Recap/message text lives at TRACE (the production INFO log carries
-    only metadata); tests that assert on content text turn TRACE on.
+    only metadata); tests that assert on content text inject this, which
+    is what ``AUDIO_RECAP_LOG_LEVEL=trace`` makes the composition root build.
     """
 
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"log_level": "trace"}), encoding="utf-8")
+    return FileEventLog(log_path, trace_enabled=True)
 
 
-def _write_dry_run_config(cwd: Path) -> None:
-    path = cwd / ".audio-recap" / "config.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"dry_run": True}), encoding="utf-8")
-
-
-def test_dry_run_config_skips_say_subprocess(tmp_path: Path, log_path: Path) -> None:
-    """``dry_run: true`` short-circuits ``say`` while keeping the pipeline live."""
+def test_dry_run_skips_say_subprocess(tmp_path: Path, log_path: Path) -> None:
+    """``dry_run`` short-circuits ``say`` while keeping the pipeline live."""
 
     cwd = tmp_path / "proj"
     cwd.mkdir()
-    _write_dry_run_config(cwd)
     payload: dict[str, Any] = {
         "session_id": "dry-sid",
         "cwd": str(cwd),
@@ -959,7 +956,7 @@ def test_dry_run_config_skips_say_subprocess(tmp_path: Path, log_path: Path) -> 
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(str(cwd), tmp_path)
+    services, calls = _mock_services(str(cwd), tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Recap pipeline still runs (claude -p called) but say is skipped.
@@ -977,7 +974,6 @@ def test_dry_run_logs_recap_text_and_message_text(tmp_path: Path, log_path: Path
 
     cwd = tmp_path / "proj"
     cwd.mkdir()
-    _write_dry_run_config(cwd)
     payload: dict[str, Any] = {
         "session_id": "snip-sid",
         "cwd": str(cwd),
@@ -998,7 +994,7 @@ def test_dry_run_logs_recap_text_and_message_text(tmp_path: Path, log_path: Path
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(str(cwd), tmp_path)
+    services, _ = _mock_services(str(cwd), tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1011,7 +1007,7 @@ def test_dry_run_logs_recap_text_and_message_text(tmp_path: Path, log_path: Path
 
 
 def test_normal_fire_logs_tts_status_spoken(tmp_path: Path, log_path: Path) -> None:
-    """Without a config file, the fire emits ``tts_status=spoken``."""
+    """A normal (non-dry-run) fire emits ``tts_status=spoken``."""
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
@@ -1050,8 +1046,6 @@ def test_long_message_path_logs_message_text_snippet(tmp_path: Path, log_path: P
     TRACE in ``trace_segment segment=recap_spoken|message_spoken``.
     """
 
-    _write_trace_config(tmp_path)
-
     def claude(
         argv: list[str], *, input: str | None = None, **_: Any
     ) -> subprocess.CompletedProcess[str]:
@@ -1081,7 +1075,7 @@ def test_long_message_path_logs_message_text_snippet(tmp_path: Path, log_path: P
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner)
+    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1110,7 +1104,6 @@ def test_recap_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
     truncation it used to apply on top.
     """
 
-    _write_trace_config(tmp_path)
     # 30 space-separated single chars (60 chars total) — under the
     # prior 200-char cap, so the regression signal here is "no
     # ellipsis appended on a normal-shaped recap". The long-message
@@ -1144,7 +1137,7 @@ def test_recap_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner)
+    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1167,7 +1160,6 @@ def test_message_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
     the maintainer needs to read in full to grade per-turn quality.
     """
 
-    _write_trace_config(tmp_path)
     # Build a >200-char message (single text block, post-summarizer).
     long_message = " ".join(["lorem"] * 200)  # ~1200 chars
     assert len(long_message) > 200
@@ -1201,7 +1193,7 @@ def test_message_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner)
+    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1220,7 +1212,6 @@ def test_dry_run_still_writes_cache(tmp_path: Path) -> None:
 
     cwd = tmp_path / "proj"
     cwd.mkdir()
-    _write_dry_run_config(cwd)
     long_reply = " ".join(["fixed"] * 35)  # > 30-word recap-skip floor
     payload: dict[str, Any] = {
         "session_id": "cache-sid",
@@ -1242,7 +1233,7 @@ def test_dry_run_still_writes_cache(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(str(cwd), tmp_path)
+    services, _ = _mock_services(str(cwd), tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     got = FileNarrationCache(cache_root(tmp_path)).read("cache-sid")
@@ -1250,47 +1241,6 @@ def test_dry_run_still_writes_cache(tmp_path: Path) -> None:
     cached_recap, cached_message = got
     assert cached_recap == "Edited some files and ran tests."
     assert cached_message == long_reply
-
-
-def test_malformed_config_falls_back_to_defaults_and_speaks(tmp_path: Path, log_path: Path) -> None:
-    """A broken config doesn't break narration — it logs and proceeds."""
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    cfg_path = cwd / ".audio-recap" / "config.json"
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text("{not valid json", encoding="utf-8")
-
-    long_reply = " ".join(["fixed"] * 35)
-    payload: dict[str, Any] = {
-        "session_id": "bad-cfg-sid",
-        "cwd": str(cwd),
-        "transcript": [
-            {"role": "user", "content": "explain"},
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": "t1",
-                        "name": "Edit",
-                        "input": {"file_path": "/x"},
-                    },
-                    {"type": "text", "text": long_reply},
-                ],
-            },
-        ],
-    }
-    seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(str(cwd), tmp_path)
-    assert hook.main(raw_payload(payload), services=services) == 0
-
-    # Defaults applied: ``say`` was called (dry_run defaulted to False).
-    assert len(calls["say"]) == 2
-
-    text = log_path.read_text(encoding="utf-8")
-    assert "event=config" in text
-    assert "tts_status=spoken" in text
 
 
 # ---------- skip Audio Recap's own slash-command turns -------------------
@@ -1497,75 +1447,6 @@ def test_detect_helper_recognises_audio_recap_commands_only() -> None:
     assert _detect(None) is None
 
 
-def test_default_enabled_config_fires_narration_without_state_file(tmp_path: Path) -> None:
-    """``default_enabled: true`` lights up a fresh session with no state file.
-
-    Reproduces the workflow that motivated 069: a worktree wants
-    narration auto-on without manually invoking ``/audio-recap:on
-    on`` in every new session.
-    """
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"default_enabled": True}), encoding="utf-8")
-
-    payload: dict[str, Any] = {
-        "session_id": "fresh-default-on-sid",
-        "cwd": str(cwd),
-        "transcript": [
-            {"role": "user", "content": "explain"},
-            {
-                "role": "assistant",
-                "content": [{"type": "text", "text": " ".join(["hi"] * 35)}],
-            },
-        ],
-    }
-    # Notably: no seed_enabled() call. Config alone should be enough.
-    services, calls = _mock_services(str(cwd), tmp_path)
-    assert hook.main(raw_payload(payload), services=services) == 0
-    # Pipeline ran (message above 30-word recap-skip threshold; no
-    # tool_uses so recap is skipped; just the message goes to TTS).
-    assert len(calls["say"]) == 1
-
-
-def test_explicit_off_state_beats_default_enabled_true(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Persisted ``enabled=false`` survives a default-on cwd.
-
-    Once the user has explicitly opted out of narration for a session
-    (``/audio-recap:on off``), the persisted choice MUST beat the
-    config default. The state file is authoritative when present.
-    """
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"default_enabled": True}), encoding="utf-8")
-
-    sid = "explicit-off-sid"
-    FileStateStore(state_root(tmp_path)).save(State(enabled=False), sid, str(cwd))
-
-    payload: dict[str, Any] = {
-        "session_id": sid,
-        "cwd": str(cwd),
-        "transcript": [
-            {"role": "user", "content": "explain"},
-            {
-                "role": "assistant",
-                "content": [{"type": "text", "text": " ".join(["hi"] * 35)}],
-            },
-        ],
-    }
-    services, calls = _mock_services(str(cwd), tmp_path)
-    assert hook.main(raw_payload(payload), services=services) == 0
-    assert calls["say"] == []
-    assert "audio recap disabled" in capsys.readouterr().err
-
-
 def test_synthesized_transcript_carries_user_message_for_command_detection(
     tmp_path: Path, log_path: Path
 ) -> None:
@@ -1688,37 +1569,6 @@ def test_short_aiff_falls_back_and_eventlog_records_reason(tmp_path: Path, log_p
     assert "fallback_reason=" in text
 
 
-def test_trace_speech_log_gated_by_config_flag(tmp_path: Path, log_path: Path) -> None:
-    """``tts.trace_speech_log: true`` enables the optional unified-log
-    capture; ``false`` (default) skips it. It writes a TRACE line, so it
-    also needs ``log_level: trace``."""
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(
-        json.dumps({"log_level": "trace", "tts": {"trace_speech_log": True}}),
-        encoding="utf-8",
-    )
-    _, payload = _raw_fixture("stop_payload.json")
-    payload["cwd"] = str(cwd)
-    seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(str(cwd), tmp_path)
-    assert hook.main(raw_payload(payload), services=services) == 0
-    text = log_path.read_text(encoding="utf-8")
-    assert "event=trace_speech_log" in text
-
-
-def test_trace_speech_log_off_by_default(tmp_path: Path, log_path: Path) -> None:
-    raw, payload = _raw_fixture("stop_payload.json")
-    seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(payload["cwd"], tmp_path)
-    assert hook.main(raw, services=services) == 0
-    text = log_path.read_text(encoding="utf-8")
-    assert "event=trace_speech_log" not in text
-
-
 # ---------- presence heartbeat (multi-session) ----------
 
 
@@ -1749,43 +1599,6 @@ def test_disabled_session_does_not_record_a_heartbeat(tmp_path: Path) -> None:
 
     sid = payload.get("session_id") or "_global"
     assert not (tmp_path / "active" / sid).exists()
-
-
-def test_default_enabled_session_registers_only_once_it_narrates(tmp_path: Path) -> None:
-    """``default_enabled: true`` counts from the first narration, not from open.
-
-    Enablement by per-cwd config takes a different route to the state gate than
-    ``/audio-recap:on`` does, but it must land on the same side of the
-    heartbeat: the session is enabled from the moment it opens, yet nothing of
-    ours runs until its first Stop, so it is not a neighbour until then. That is
-    the wanted semantics rather than a gap — a session that has not spoken has
-    produced no audio to disambiguate.
-    """
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"default_enabled": True}), encoding="utf-8")
-
-    sid = "default-on-presence-sid"
-    payload: dict[str, Any] = {
-        "session_id": sid,
-        "cwd": str(cwd),
-        "transcript": [
-            {"role": "user", "content": "explain"},
-            {"role": "assistant", "content": [{"type": "text", "text": " ".join(["hi"] * 35)}]},
-        ],
-    }
-
-    # Enabled by config alone — but silent so far, so not yet a neighbour.
-    assert not (tmp_path / "active" / sid).exists()
-
-    services, calls = _mock_services(str(cwd), tmp_path)  # notably: no seed_enabled()
-    assert hook.main(raw_payload(payload), services=services) == 0
-
-    assert len(calls["say"]) == 1  # it did narrate...
-    assert (tmp_path / "active" / sid).exists()  # ...and that is what registered it
 
 
 def test_heartbeat_marks_the_start_of_a_narration_not_its_success(tmp_path: Path) -> None:

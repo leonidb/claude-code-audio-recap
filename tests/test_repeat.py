@@ -69,8 +69,8 @@ def make_services(
 
     runner = _runner_and_captured[0]
 
-    def _build(cwd: str = "/proj") -> Services:
-        return real_services(cwd, tmp_path, runner=runner)
+    def _build(cwd: str = "/proj", *, dry_run: bool = False) -> Services:
+        return real_services(cwd, tmp_path, runner=runner, dry_run=dry_run)
 
     return _build
 
@@ -270,22 +270,18 @@ def test_unexpected_positional_arg_prints_usage_and_exits_2(
     assert "usage: repeat" in capsys.readouterr().err
 
 
-def test_dry_run_config_skips_say_in_repeat_cache_hit(
+def test_dry_run_skips_say_in_repeat_cache_hit(
     tmp_path: Path,
     say_calls: list[list[str]],
     make_services: Callable[..., Services],
     cache: FileNarrationCache,
 ) -> None:
-    """A testing-agent worktree with dry_run=true keeps /repeat silent too."""
-
-    cfg = tmp_path / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"dry_run": True}), encoding="utf-8")
+    """A graph built with dry_run (as the eval harness builds it) keeps /repeat silent too."""
 
     cache.write("dry-sid", "Edited a file.", "A short reply.")
     rc = repeat.main(
         ["repeat", "--session-id", "dry-sid", "--cwd", str(tmp_path)],
-        services=make_services(str(tmp_path)),
+        services=make_services(str(tmp_path), dry_run=True),
     )
     assert rc == 0
     assert say_calls == []

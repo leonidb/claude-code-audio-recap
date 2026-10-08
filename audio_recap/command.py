@@ -78,10 +78,7 @@ class CommandHandler:
             return self._handle_on(session_id, cwd)
         if verb == "off":
             return self._handle_off(session_id, cwd)
-        # ``status`` reads per-cwd config for the default_enabled
-        # effective state (so a fresh session in a default-on cwd
-        # truthfully reports "enabled" before /audio-recap:on is run).
-        return self._handle_status(session_id, cwd, self._s.config.default_enabled)
+        return self._handle_status(session_id, cwd)
 
     def _handle_on(self, session_id: str, cwd: str) -> int:
         self._s.state.save(State(enabled=True), session_id, cwd)
@@ -107,8 +104,8 @@ class CommandHandler:
         self._log(session_id, cwd, "off", False)
         return 0
 
-    def _handle_status(self, session_id: str, cwd: str, default_enabled: bool) -> int:
-        current = self._s.state.load(session_id, cwd, default_enabled=default_enabled)
+    def _handle_status(self, session_id: str, cwd: str) -> int:
+        current = self._s.state.load(session_id, cwd)
         sys.stdout.write(f"Audio Recap is {_phrase(current.enabled)}.\n")
         self._log(session_id, cwd, "status", current.enabled)
         return 0

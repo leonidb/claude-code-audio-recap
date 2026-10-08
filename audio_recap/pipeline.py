@@ -390,7 +390,7 @@ class TTSRunner:
 
         # Final spoken text — TRACE only. INFO carries paths/counts/timings
         # so a production log never captures user reply content; readers
-        # who need the text turn on ``log_level: trace`` per cwd.
+        # who need the text set ``AUDIO_RECAP_LOG_LEVEL=trace``.
         if recap:
             log.event_trace(
                 "trace_segment",
@@ -414,9 +414,9 @@ class TTSRunner:
             "summary_path": result.summary_path,
             "recap_words": len((recap or "").split()),
         }
-        # Dry-run keeps ``recap_text``/``message_text`` at INFO — that mode
-        # is per-cwd developer/testing (``dry_run: true``) and the eval
-        # harvest joins on those fields. The production ``spoken`` path
+        # Dry-run keeps ``recap_text``/``message_text`` at INFO — only the
+        # eval harness sets that mode (in code), and its harvest joins on
+        # those fields. The production ``spoken`` path
         # never emits content text at INFO.
         if tts_status == "dry_run":
             info_fields["recap_text"] = recap or ""

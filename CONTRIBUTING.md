@@ -27,22 +27,22 @@ The plugin has two entry points: the Stop hook and the `/audio-recap:*` slash co
 #    Instructions depend on your CC plugin-install flow; see README.
 
 # 2. Drive the Stop hook directly with a fixture payload — fastest inner loop.
-#    Narration is off by default; enable it first with option 3 below, or
-#    drop a .audio-recap/config.json with {"default_enabled": true} in the cwd.
+#    Narration is off by default; enable the fixture's session first:
+python -m audio_recap.command --session-id sess_stub_0001 --cwd "$PWD" on
 cat tests/fixtures/stop_payload.json | python -m audio_recap.hook
 
-# 3. Exercise the /audio-recap:* command handlers directly.
-python -m audio_recap.command on
-python -m audio_recap.command off
-python -m audio_recap.command status
-python -m audio_recap.repeat
+# 3. Exercise the /audio-recap:* command handlers directly, for the fixture's session.
+python -m audio_recap.command --session-id sess_stub_0001 --cwd "$PWD" on
+python -m audio_recap.command --session-id sess_stub_0001 --cwd "$PWD" off
+python -m audio_recap.command --session-id sess_stub_0001 --cwd "$PWD" status
+python -m audio_recap.repeat --session-id sess_stub_0001 --cwd "$PWD"
 ```
 
 Options 2 and 3 are what you'll want during development: option 2 exercises the full recap + TTS path without waiting on a real Claude turn, and option 3 flips the persistent state file without going through the CC TUI. The two paths share `state.py` — flipping state via option 3 and then running option 2 is the fastest way to test the early-exit branch.
 
 Option 2 (and `repeat` on a cold cache) makes real `claude -p` calls — cheap on Haiku, but it does spend tokens against your Claude Code auth. The `on`/`off`/`status` commands don't touch a model.
 
-The structured event log at `~/.claude/audio-recap/logs/audio-recap.log` defaults to **INFO** — paths, per-stage timings, word counts. **TRACE** adds the recap and message text, the full hook payload, the verbatim `claude -p` recap and summarizer prompts and responses, the speakable-transformed text per segment, and full Python tracebacks at every catch site. Turn it on while debugging with `{"log_level": "trace"}` in a `<cwd>/.audio-recap/config.json`. The log lives only on your local machine and is not rotated — delete it any time; the plugin recreates it on the next fire.
+The structured event log at `~/.claude/audio-recap/logs/audio-recap.log` defaults to **INFO** — paths, per-stage timings, word counts. **TRACE** adds the recap and message text, the full hook payload, the verbatim `claude -p` recap and summarizer prompts and responses, the speakable-transformed text per segment, and full Python tracebacks at every catch site. Turn it on while debugging by setting `AUDIO_RECAP_LOG_LEVEL=trace`: in `~/.claude/settings.json` under `env` for hooks fired by Claude Code, or `export AUDIO_RECAP_LOG_LEVEL=trace` in the shell when you run the hook or `scripts/run.sh` by hand. The log lives only on your local machine and is not rotated — delete it any time; the plugin recreates it on the next fire.
 
 ## Tests
 
@@ -117,7 +117,7 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/) strictly 
 
 **Body (optional):** Explains *why* when the *what* isn't obvious from the diff. Separated from the subject by a blank line.
 
-**Breaking changes:** append `!` after the type/scope (`feat(tts)!: drop legacy sync API`), or add a `BREAKING CHANGE:` footer that describes the break. Either form triggers a major-version bump.
+**Breaking changes:** append `!` after the type/scope (`feat(tts)!: drop legacy sync API`), or add a `BREAKING CHANGE:` footer that describes the break. Either form triggers a major-version bump — before 1.0, a minor-version bump.
 
 **Examples:**
 
@@ -151,11 +151,11 @@ Every commit (or PR) that changes user-visible behavior or fixes a runtime bug *
 
 `.claude-plugin/marketplace.json` does **not** carry a per-plugin `version` — Claude Code resolves the plugin version from `plugin.json` first, and the docs warn that setting it in both places lets a stale marketplace value silently mask `plugin.json`. The marketplace's own `metadata.version` versions the catalog file itself and is independent of the plugin.
 
-Use the smallest semver step that fits the change: `0.0.x` for fixes and additive tweaks while we're pre-1.0, `0.x.0` once we start labeling releases, `x.0.0` for breaking changes (which also need the `!` or `BREAKING CHANGE:` footer per Conventional Commits). Version-only commits go in as `chore(release): bump plugin version to <new>`.
+Use the smallest semver step that fits the change: `0.0.x` for fixes and additive tweaks while we're pre-1.0, `0.x.0` once we start labeling releases, `x.0.0` for breaking changes (which also need the `!` or `BREAKING CHANGE:` footer per Conventional Commits). Before 1.0, a breaking change bumps the minor version (`0.x.0`) instead. Version-only commits go in as `chore(release): bump plugin version to <new>`.
 
 ## Reporting bugs
 
-Include: macOS version, Claude Code version (`claude --version`), Python version, config file (with secrets redacted), and a log excerpt from the failing run. Minimal repro if you can get one — a Stop-hook JSON payload that reliably reproduces is gold.
+Include: macOS version, Claude Code version (`claude --version`), Python version, and a log excerpt from the failing run. Minimal repro if you can get one — a Stop-hook JSON payload that reliably reproduces is gold.
 
 For TTS issues specifically, include the output of `say -v '?' | head` (to confirm the voice list) and whether the failure is at recap generation, message extraction, or `say` playback.
 

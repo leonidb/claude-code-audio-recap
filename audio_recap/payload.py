@@ -75,7 +75,7 @@ def cwd_from_payload(payload: dict[str, Any]) -> str:
     A missing or non-string ``cwd`` becomes ``""``. Shared by the Stop
     hook's on/off gate (which runs before the transcript is touched) and
     :meth:`PayloadParser.from_dict`, so the two cannot disagree about
-    which directory's config and state a turn belongs to.
+    which working directory a turn belongs to.
     """
 
     cwd_raw = payload.get("cwd")
@@ -392,8 +392,8 @@ class PayloadParser:
         """Emit the full payload as a single TRACE line for fixture replay.
 
         Takes the event log explicitly: it runs after the Services graph
-        is built, so the caller passes the config-derived log (which
-        respects ``log_level``), not the parser's pre-config bootstrap.
+        is built, so the caller passes the graph's log (which respects
+        ``AUDIO_RECAP_LOG_LEVEL``), not the parser's bootstrap log.
         """
 
         try:

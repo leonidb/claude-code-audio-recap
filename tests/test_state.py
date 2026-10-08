@@ -79,64 +79,6 @@ def test_integer_one_is_not_accepted_as_true(
     assert "must be a bool" in capsys.readouterr().err
 
 
-# ---------- 069: default_enabled keyword param ----------
-
-
-def test_missing_file_with_default_enabled_true_returns_enabled(tmp_path: Path) -> None:
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=True) == State(enabled=True)
-
-
-def test_missing_file_with_default_enabled_false_returns_disabled(tmp_path: Path) -> None:
-    # Same as the original missing-file behavior — the default value
-    # of ``default_enabled`` is False, so call sites that don't pass
-    # the kwarg keep their old behavior.
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=False) == State(enabled=False)
-
-
-def test_existing_enabled_false_overrides_default_enabled_true(tmp_path: Path) -> None:
-    # Explicit ``/audio-recap:off`` (which writes ``{"enabled": false}``)
-    # beats config-level default-on. Once a user has opted out for a
-    # session, the persisted choice wins.
-    _seed(tmp_path, '{"enabled": false}')
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=True) == State(enabled=False)
-
-
-def test_existing_enabled_true_with_default_enabled_false(tmp_path: Path) -> None:
-    # Symmetric: existing-file true survives even when config default
-    # is false (the default for the config field itself).
-    _seed(tmp_path, '{"enabled": true}')
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=False) == State(enabled=True)
-
-
-def test_corrupt_json_returns_disabled_regardless_of_default_enabled(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # Corrupt files MUST surface as silence — a user with a broken
-    # state file shouldn't be misled into thinking narration is live
-    # because a config flag is on.
-    _seed(tmp_path, "{not: json")
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=True) == State(enabled=False)
-    assert "unreadable" in capsys.readouterr().err
-
-
-def test_missing_enabled_key_returns_disabled_regardless_of_default_enabled(
-    tmp_path: Path,
-) -> None:
-    # Wrong-shape file (well-formed JSON object missing the key) also
-    # falls back to False — the file exists, so we're past the
-    # ``FileNotFoundError`` branch where the default applies.
-    _seed(tmp_path, '{"version": 1}')
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=True) == State(enabled=False)
-
-
-def test_non_bool_enabled_returns_disabled_regardless_of_default_enabled(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    _seed(tmp_path, '{"enabled": "yes"}')
-    assert FileStateStore(tmp_path).load(SID, CWD, default_enabled=True) == State(enabled=False)
-    assert "must be a bool" in capsys.readouterr().err
-
-
 # ---------- save/load round trip ----------
 
 

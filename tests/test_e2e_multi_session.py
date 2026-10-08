@@ -169,9 +169,10 @@ def _services(session_id: str, cwd: str, shared_root: Path, runner: FakeProcessR
 def _enable(shared_root: Path, session_id: str, cwd: str) -> None:
     """Enable narration by writing state directly, WITHOUT registering presence.
 
-    Models the ``default_enabled`` route — a session enabled by per-cwd config,
-    which never runs a slash command — so tests using this exercise the Stop
-    hook's own registration. Use :func:`_on` for the ``/audio-recap:on`` route.
+    Models a session whose state says on but which holds no heartbeat yet
+    (enabled before a crash or an upgrade) — so tests using this exercise the
+    Stop hook's own registration. Use :func:`_on` for the ``/audio-recap:on``
+    route.
     """
 
     FileStateStore(shared_root / "state").save(State(enabled=True), session_id, cwd)

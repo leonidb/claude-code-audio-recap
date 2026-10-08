@@ -127,10 +127,8 @@ been quiet for a while. `presence_window_s` (default 24h) is therefore an
 heartbeat in every ordinary case, so one that outlives them belongs to a
 hard-killed session, and it is discounted and collected on the next scan.
 
-Two consequences are deliberate: a session enabled by per-cwd `default_enabled`
-rather than by `/audio-recap:on` isn't counted until its first narration, since
-no code of ours runs before then; and a hard-killed session keeps counting until
-the horizon passes, costing at most one unneeded label — the harmless direction.
+One consequence is deliberate: a hard-killed session keeps counting until the
+horizon passes, costing at most one unneeded label — the harmless direction.
 `/audio-recap:repeat` refreshes the heartbeat via the Stop hook that follows it,
 but takes no playback lock, so an explicit "play it now" is the one thing that
 can overlap.
@@ -167,7 +165,7 @@ audio_recap/
 ├── speakable.py   # text → speakable transforms (code blocks, URLs, paths, units…)
 ├── cache.py       # per-session (recap, message) cache backing /audio-recap:repeat
 ├── state.py       # per-session on/off flag
-├── config.py      # config schema + loading
+├── config.py      # config schema and shipped defaults
 ├── eventlog.py    # append-only debug log
 ├── lock.py        # playback lock — serializes audio across concurrent sessions
 ├── presence.py    # heartbeat registry — which other sessions are open and enabled
@@ -210,11 +208,10 @@ class TTS(Protocol):
 ```
 
 **Config** (`audio_recap/config.py`) is a frozen-dataclass tree —
-`Recap`, `Summarizer`, `Narration`, `TTS` — plus top-level fields. Most
-are fixed at their shipped defaults; a small subset (`dry_run`,
-`default_enabled`, `log_level`, `presence_window_s`, `label_max_words`,
-`tts.trace_speech_log`, `tts.baseline_wpm`) can be overridden per-cwd via
-`<cwd>/.audio-recap/config.json` — see `Config.load()`.
+`Recap`, `Summarizer`, `Narration`, `TTS` — plus top-level fields, all
+fixed at their shipped defaults; nothing is read from disk. The
+composition root sets only `log_level` (from `AUDIO_RECAP_LOG_LEVEL`) and
+`dry_run` (from a keyword the eval harness passes).
 
 ## Out of scope for V1
 
