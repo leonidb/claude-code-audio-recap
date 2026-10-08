@@ -12,6 +12,7 @@
   "documentationUrl": "https://github.com/leonidb/claude-code-audio-recap#readme",
   "supportUrl": "https://github.com/leonidb/claude-code-audio-recap/issues",
   "privacyPolicyUrl": "https://github.com/leonidb/claude-code-audio-recap#privacy",
+  "icon": "./icon.png",
   "license": "Apache-2.0",
   "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
 }
