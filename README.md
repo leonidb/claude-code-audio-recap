@@ -4,7 +4,7 @@
 
 *Hear what Claude Code is doing without watching the screen.*
 
-Audio Recap speaks a Haiku-summarized recap of every turn - long replies condensed into spoken prose, not read verbatim - so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
+Audio Recap speaks a Haiku-summarized recap of every turn (Haiku writes the text, macOS `say` makes the sound) - long replies condensed into spoken prose, not read verbatim - so you can step away and trust the audio to pull you back when there's something worth your attention. No mic, no models to download, no daemon, no API key beyond what Claude Code already uses. Just `/plugin install`.
 
 > 🔊 **Click unmute to hear the recap - the audio plays after Claude finishes outputting.**
 
@@ -14,7 +14,7 @@ Audio Recap speaks a Haiku-summarized recap of every turn - long replies condens
 
 After each assistant turn, Audio Recap speaks at most two segments:
 
-1. **Recap** - a one-sentence summary of the turn's actions, e.g. *"Edited `auth.py` and `tests/test_auth.py`. Ran the test suite. All passing."*
+1. **Recap** - a one-sentence summary of the turn's actions, e.g. *"Edited the auth module and its tests, then ran the test suite."*
 2. **Message** - Claude's reply to you. Long messages are summarized for listening, not read in full.
 
 ## Quickstart
@@ -56,6 +56,14 @@ Audio Recap is **off by default** in every Claude Code session - running the ins
 Esc                  # stop a narration mid-playback
 ```
 
+## Usage examples
+
+The spoken wording varies from turn to turn; these show the shape.
+
+1. **Walk away from a long refactor.** Turn narration on, ask Claude to "rename `UserService` to `AccountService` across the repo and run the tests", and go make coffee. When it's done you hear a recap like *"Renamed the service across fourteen files and ran the test suite."*, then Claude's reply with the result.
+2. **Catch a failure without reading the log.** Ask Claude to run a build or a migration. If it fails, the recap says what Claude did - *"Ran the database migration."* - and Claude's reply tells you what went wrong, instead of you noticing ten minutes later.
+3. **Keep two sessions apart.** Name two sessions with `/rename builder` and `/rename docs` and turn narration on in both. Each automatic narration starts with the session's name - *"builder. Edited three files and ran the tests."* - so you know which one wants you.
+
 ## Where Audio Recap fits
 
 Audio plugins for Claude Code split roughly three ways:
@@ -86,10 +94,10 @@ In the same panel, set **System voice** to your downloaded Premium voice. Audio 
 
 ## How it works
 
-A Claude Code plugin. On every Stop event, the hook:
+A Claude Code plugin. On every Stop event (with narration on), the hook:
 
 1. Generates the recap via `claude -p --model claude-haiku-4-5`, with a deterministic rule-based fallback.
-2. Summarizes the user-facing message via `claude -p` if it's above the configured threshold; falls back to the verbatim message on failure.
+2. Summarizes the user-facing message via `claude -p` if it's over 50 words; falls back to the verbatim message (cut at 150 words) on failure.
 3. Renders both segments with `say -o` to AIFF, plays via `afplay`.
 
 Each Stop hook is a fresh one-shot process. Full architecture in [`docs/architecture.md`](docs/architecture.md).
@@ -107,9 +115,19 @@ Name your sessions with Claude Code's `/rename` — it's what makes the announce
 
 Audio Recap calls `claude -p --model claude-haiku-4-5` once per narrated turn - for the recap, and again when a reply is long enough to summarize. That's **additional model usage**: it draws on the same Claude Code subscription or API credits your coding session already uses. It runs on Haiku, though - the cheapest model, far below the cost of the model doing your actual coding - so the per-turn overhead is small next to a normal session. No separate API key or account: it uses your existing Claude Code auth.
 
+## Troubleshooting
+
+- **No sound.** Narration is off by default and set per session: run `/audio-recap:status`, then `/audio-recap:on`. Audio Recap works only on macOS; elsewhere its commands say so.
+- **Recaps sound generic, or long replies are cut off with "… and more".** Haiku couldn't write the text: `claude -p` failed, timed out or isn't installed, and the log says which. In the desktop app, make sure the Claude Code CLI is installed (see [Quickstart](#quickstart)).
+- **Every turn is narrated twice.** Another audio plugin is narrating too, or Audio Recap is installed from two marketplaces. Keep one.
+- **What happened on a turn?** Read `~/.claude/audio-recap/logs/audio-recap.log`. For full detail, set `AUDIO_RECAP_LOG_LEVEL=trace` (for hooks, in `~/.claude/settings.json` under `env`); [CONTRIBUTING](CONTRIBUTING.md) has more on debugging.
+- Still stuck? [Open an issue](https://github.com/leonidb/claude-code-audio-recap/issues).
+
 ## Privacy
 
-Audio Recap runs entirely on your machine. The messages are never logged, and the log is purely local for debug purposes. No telemetry, no network calls of its own beyond the `claude -p` subprocess Claude Code already uses.
+No server, account or telemetry. When narration is on (or you run `/audio-recap:repeat`), Audio Recap reads the latest turn from the session transcript and sends its tool calls (including commands and edited text) and, for long replies, the reply text to Claude Haiku through your own Claude Code (`claude -p`), as extra usage. Nothing goes anywhere else.
+
+It keeps the last narration and an on/off flag per session, plus a debug log, under `~/.claude/audio-recap/` until you delete it. The log holds no conversation text unless you set `AUDIO_RECAP_LOG_LEVEL=trace`, apart from error output from `claude` or `say`.
 
 ## Contributing
 
