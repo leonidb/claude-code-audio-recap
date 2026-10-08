@@ -1,7 +1,7 @@
 {
   "name": "audio-recap",
   "displayName": "Audio Recap",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Hear what Claude Code did without watching the screen. After each turn, your Mac's voice speaks a one-sentence recap of what Claude did, then its reply (long replies summarized). Claude Haiku writes the recaps and summaries through your own Claude Code (claude -p), which adds a little model usage. macOS only. Off by default.",
   "author": {
     "name": "Leonid Bakaleynik",
