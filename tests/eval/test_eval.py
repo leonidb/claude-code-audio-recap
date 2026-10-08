@@ -350,8 +350,9 @@ def test_fire_hook_in_process_writes_to_bundle_log(tmp_path: Path) -> None:
     """``_fire_hook`` runs the Stop hook in-process with a bundle-rooted Services.
 
     The synthesized payload has no pre-seeded state, so the default-off
-    gate stops the hook before TTS — but the ``fired=true`` marker and
-    the ``state=disabled`` line MUST land in the bundle-local log
+    gate stops the hook before TTS. An off session writes nothing at INFO,
+    so the cwd's config turns on trace logging: the one TRACE
+    ``state=disabled`` line MUST land in the bundle-local log
     (``run_dir/logs/audio-recap.log``), never the developer's real log.
     That's the injection contract the runner relies on, and the hook's
     stderr is captured rather than leaked.
@@ -368,6 +369,9 @@ def test_fire_hook_in_process_writes_to_bundle_log(tmp_path: Path) -> None:
     }
     run_dir = tmp_path / "run"
     run_dir.mkdir()
+    cfg = tmp_path / ".audio-recap" / "config.json"
+    cfg.parent.mkdir()
+    cfg.write_text(json.dumps({"log_level": "trace"}), encoding="utf-8")
 
     rc, stderr = runner._fire_hook(payload, run_dir)
     assert rc == 0, stderr
@@ -376,8 +380,8 @@ def test_fire_hook_in_process_writes_to_bundle_log(tmp_path: Path) -> None:
     assert log_path.exists()
     text = log_path.read_text(encoding="utf-8")
     assert f"session_id={sid}" in text
-    assert "fired=true" in text
     assert "state=disabled" in text
+    assert "fired=true" not in text
     # The hook's "disabled; skipping" stderr line was captured, not leaked.
     assert "disabled" in stderr
 

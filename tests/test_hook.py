@@ -164,6 +164,26 @@ def test_explicitly_disabled_state_exits_immediately(
     assert "audio recap disabled" in capsys.readouterr().err
 
 
+def test_disabled_session_never_reads_the_transcript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Narration off (the default): the hook stops before building the turn.
+
+    ``PayloadParser.from_dict`` is the only way the hook reaches the
+    transcript (inline or ``transcript_path``), so an off session must
+    never call it.
+    """
+
+    raw, payload = _raw_fixture("stop_payload.json")
+    services, _ = _mock_services(payload["cwd"], tmp_path)
+
+    def _no_transcript(_payload: dict[str, Any]) -> Any:
+        raise AssertionError("transcript read for a session with narration off")
+
+    monkeypatch.setattr(hook.PayloadParser, "from_dict", staticmethod(_no_transcript))
+    assert hook.main(raw, services=services) == 0
+
+
 def test_enabled_under_one_cwd_is_seen_when_hook_fires_under_another(tmp_path: Path) -> None:
     """End-to-end regression for the silent-turn bug.
 

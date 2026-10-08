@@ -69,6 +69,19 @@ def session_id_from_payload(payload: dict[str, Any]) -> str:
     return sid_raw if isinstance(sid_raw, str) and sid_raw else GLOBAL_SESSION_ID
 
 
+def cwd_from_payload(payload: dict[str, Any]) -> str:
+    """Resolve the working directory a CC hook payload refers to.
+
+    A missing or non-string ``cwd`` becomes ``""``. Shared by the Stop
+    hook's on/off gate (which runs before the transcript is touched) and
+    :meth:`PayloadParser.from_dict`, so the two cannot disagree about
+    which directory's config and state a turn belongs to.
+    """
+
+    cwd_raw = payload.get("cwd")
+    return cwd_raw if isinstance(cwd_raw, str) else ""
+
+
 @dataclass(frozen=True)
 class ToolUse:
     """One tool invocation from a Claude turn.
@@ -321,14 +334,20 @@ class PayloadParser:
 
     Owns JSON decode, JSONL transcript loading, session_id/cwd
     extraction, and slash-command tag detection. All log lines for
-    parse failures (``invalid_json``, ``non_object_payload``) are
+    decode failures (``invalid_json``, ``non_object_payload``) are
     emitted here so ``hook.main()`` doesn't have to repeat them.
 
-    Parsing runs before the ``Services`` graph (and its ``EventLog``)
+    Decoding is split from building the :class:`TurnPayload`: the Stop
+    hook calls :meth:`decode`, checks the session's on/off state from the
+    decoded dict, and only then calls :meth:`from_dict`, which is what
+    opens the transcript. A session with narration off never has its
+    transcript read.
+
+    Decoding runs before the ``Services`` graph (and its ``EventLog``)
     exists, so the parser takes its own ``EventLog``; the entrypoint
     constructs one and threads the same instance into ``Services``.
 
-    Only :meth:`parse` and :meth:`log_payload_trace` log — :meth:`from_dict`
+    Only :meth:`decode` and :meth:`log_payload_trace` log — :meth:`from_dict`
     is a pure transform and is a ``staticmethod`` so log-free callers
     (``repeat.py``'s transcript reader) can use it without an
     ``EventLog``.
@@ -337,11 +356,12 @@ class PayloadParser:
     def __init__(self, eventlog: EventLog) -> None:
         self._eventlog = eventlog
 
-    def parse(self, raw: bytes) -> TurnPayload | None:
-        """Return a :class:`TurnPayload` or ``None`` if the bytes are unparseable.
+    def decode(self, raw: bytes) -> dict[str, Any] | None:
+        """Return the decoded payload object, or ``None`` if the bytes are unusable.
 
-        ``None`` returns log their own diagnostic event line; the caller
-        just exits 1.
+        Decodes JSON and checks it is an object; it does not touch the
+        transcript (:meth:`from_dict` does). ``None`` returns log their own
+        diagnostic event line; the caller just exits 1.
         """
 
         log = self._eventlog
@@ -365,7 +385,7 @@ class PayloadParser:
                 payload_raw=raw.decode("utf-8", errors="replace"),
             )
             return None
-        return PayloadParser.from_dict(cast("dict[str, Any]", payload))
+        return cast("dict[str, Any]", payload)
 
     @staticmethod
     def log_payload_trace(eventlog: EventLog, turn: TurnPayload) -> None:
@@ -402,8 +422,7 @@ class PayloadParser:
         """
 
         session_id = session_id_from_payload(payload)
-        cwd_raw = payload.get("cwd")
-        cwd = cwd_raw if isinstance(cwd_raw, str) else ""
+        cwd = cwd_from_payload(payload)
 
         transcript_path_raw = payload.get("transcript_path")
         transcript_path = transcript_path_raw if isinstance(transcript_path_raw, str) else None

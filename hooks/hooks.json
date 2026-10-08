@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT} hook"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" \"${CLAUDE_PLUGIN_ROOT}\" hook"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh ${CLAUDE_PLUGIN_ROOT} session-end"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" \"${CLAUDE_PLUGIN_ROOT}\" session-end"
           }
         ]
       }

@@ -380,11 +380,12 @@ def test_nothing_to_speak_does_not_log_a_label() -> None:
     )
 
     assert rc == 0
-    assert not [e for _, e in log.events if "session_label" in e]
+    assert not [e for _, e in log.events if "labeled" in e or "session_label" in e]
+    assert not [e for _, e in log.traces if "session_label" in e]
 
 
 def test_label_logged_with_active_session_count() -> None:
-    """When labeled, session_label + active_sessions are logged at INFO."""
+    """When labeled, INFO records that and the count; the label text is TRACE only."""
     log = FakeEventLog()
     services = build_services(presence_registry=FakePresenceRegistry(others=2), eventlog=log)
 
@@ -395,14 +396,17 @@ def test_label_logged_with_active_session_count() -> None:
         event="stop",
     )
 
-    label_events = [e for _, e in log.events if "session_label" in e]
+    label_events = [e for _, e in log.events if e.get("labeled") is True]
     assert label_events
-    assert label_events[0]["session_label"] == "proj myapp"
     assert label_events[0]["active_sessions"] == 2
+    assert not [e for _, e in log.events if "session_label" in e]
+    label_traces = [e for _, e in log.traces if "session_label" in e]
+    assert label_traces
+    assert label_traces[0]["session_label"] == "proj myapp"
 
 
 def test_solo_does_not_log_session_label() -> None:
-    """Solo session: no session_label event emitted."""
+    """Solo session: no label is logged at any level."""
     log = FakeEventLog()
     services = build_services(presence_registry=FakePresenceRegistry(others=0), eventlog=log)
 
@@ -410,4 +414,5 @@ def test_solo_does_not_log_session_label() -> None:
         _result(recap_text="Edited a file."), session_id="sid", cwd="/proj/myapp", event="stop"
     )
 
-    assert not [e for _, e in log.events if "session_label" in e]
+    assert not [e for _, e in log.events if "labeled" in e or "session_label" in e]
+    assert not [e for _, e in log.traces if "session_label" in e]

@@ -1,13 +1,15 @@
 """Stop-hook entrypoint.
 
-Reads the Claude Code Stop-event JSON payload from stdin, parses it
-into a :class:`audio_recap.payload.TurnPayload`, consults persistent
-state keyed on ``session_id`` alone, optionally runs the recap +
-summary :class:`audio_recap.pipeline.Pipeline`, and speaks the result
-through the configured :class:`audio_recap.tts.TTS` backend. One-shot
-per invocation; no long-running state.
+Reads the Claude Code Stop-event JSON payload from stdin, consults
+persistent state keyed on ``session_id`` alone, and only when narration
+is on parses the turn into a :class:`audio_recap.payload.TurnPayload`
+(reading the session transcript), runs the recap + summary
+:class:`audio_recap.pipeline.Pipeline`, and speaks the result through
+the configured :class:`audio_recap.tts.TTS` backend. One-shot per
+invocation; no long-running state.
 
-Every fire appends a structured trail of ``key=value`` lines to
+Every fire in a session with narration on appends a structured trail
+of ``key=value`` lines to
 ``~/.claude/audio-recap/logs/audio-recap.log`` (see
 :mod:`audio_recap.eventlog`). ``tail -f`` that file or
 ``grep session_id=<id>`` to scope to a single session — the log is
@@ -23,8 +25,10 @@ heartbeat; it does not touch state.)
 Failure behavior:
 
 - Invalid JSON on stdin or non-object payload → log and exit 1.
-- Audio Recap disabled via ``/audio-recap:off`` → log and exit 0 (no
-  side effects).
+- Audio Recap disabled (the default, or ``/audio-recap:off``) → exit 0
+  before the transcript is opened and without a per-turn log line (one
+  TRACE line when ``log_level`` is ``trace``). Building ``Services`` can
+  still log a malformed project config or an unavailable lock file.
 - ``claude -p`` recap fails → fall back to the rule-based recap. If
   that too fails → log and speak the message alone.
 - Long-message summarizer fails → log and speak the verbatim message.
@@ -38,7 +42,7 @@ import subprocess
 import sys
 from typing import Any
 
-from audio_recap.payload import PayloadParser
+from audio_recap.payload import PayloadParser, cwd_from_payload, session_id_from_payload
 from audio_recap.pipeline import Pipeline, TTSRunner
 from audio_recap.services import Services, default_event_log
 from audio_recap.state import State
@@ -100,22 +104,38 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     ``Services`` to substitute Recap / TTS / etc.
     """
 
-    # Payload parsing runs before the Services graph (and the per-cwd
-    # config) exists, so the parser logs to a bootstrap INFO event log.
-    # When ``services`` is injected (tests), reuse its log instead.
+    # Decoding runs before the Services graph (and the per-cwd config)
+    # exists, so the parser logs to a bootstrap INFO event log. When
+    # ``services`` is injected (tests), reuse its log instead.
     eventlog = services.eventlog if services is not None else default_event_log()
-    parser = PayloadParser(eventlog)
-    turn = parser.parse(raw)
-    if turn is None:
+    payload = PayloadParser(eventlog).decode(raw)
+    if payload is None:
         return 1
+    session_id = session_id_from_payload(payload)
+    cwd = cwd_from_payload(payload)
 
     if services is None:
         # Services builds the real event log after Config.load, so its
         # trace level reflects Config.log_level.
-        services = Services.from_config(turn.cwd, session_id=turn.session_id)
+        services = Services.from_config(cwd, session_id=session_id)
     log = services.eventlog
 
-    # Entry telemetry — single line per fire.
+    # State gate — before the transcript is opened or the turn is logged. A
+    # session with narration off (the default) must not have its
+    # conversation read or recorded: the hook takes the session id and cwd
+    # from the payload, looks up the flag, and stops.
+    state: State = services.state.load(
+        session_id, cwd, default_enabled=services.config.default_enabled
+    )
+    if not state.enabled:
+        sys.stderr.write("[audio-recap] audio recap disabled; skipping\n")
+        log.event_trace("stop", session_id=session_id, state="disabled")
+        return 0
+
+    # Past the gate: build the turn, which reads the transcript.
+    turn = PayloadParser.from_dict(payload)
+
+    # Entry telemetry — single line per narrated fire.
     since_last_fire_ms = log.record_fire_delta("stop")
     fired_fields: dict[str, Any] = {
         "session_id": turn.session_id,
@@ -126,16 +146,6 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
         fired_fields["since_last_fire_ms"] = since_last_fire_ms
     log.event("stop", **fired_fields)
     PayloadParser.log_payload_trace(log, turn)
-
-    # State gate.
-    state: State = services.state.load(
-        turn.session_id, turn.cwd, default_enabled=services.config.default_enabled
-    )
-    if not state.enabled:
-        log.message("[audio-recap] audio recap disabled; skipping")
-        sys.stderr.write("[audio-recap] audio recap disabled; skipping\n")
-        log.event("stop", session_id=turn.session_id, state="disabled")
-        return 0
     log.event("stop", session_id=turn.session_id, state="enabled")
 
     # Presence heartbeat — mark this session as open with narration on, so
