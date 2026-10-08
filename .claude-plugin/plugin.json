@@ -1,10 +1,17 @@
 {
   "name": "audio-recap",
+  "displayName": "Audio Recap",
   "version": "0.2.1",
-  "description": "Audio Recap for Claude Code — listen to each assistant turn: a one-sentence recap of what Claude did, then the message itself, with long replies summarized for ears.",
+  "description": "Hear what Claude Code did without watching the screen. After each turn, your Mac's voice speaks a one-sentence recap of what Claude did, then its reply (long replies summarized). Claude Haiku writes the recaps and summaries through your own Claude Code (claude -p), which adds a little model usage. macOS only. Off by default.",
   "author": {
-    "name": "Leonid Bakaleynik"
+    "name": "Leonid Bakaleynik",
+    "url": "https://github.com/leonidb"
   },
+  "homepage": "https://github.com/leonidb/claude-code-audio-recap",
+  "repository": "https://github.com/leonidb/claude-code-audio-recap",
+  "documentationUrl": "https://github.com/leonidb/claude-code-audio-recap#readme",
+  "supportUrl": "https://github.com/leonidb/claude-code-audio-recap/issues",
+  "privacyPolicyUrl": "https://github.com/leonidb/claude-code-audio-recap#privacy",
   "license": "Apache-2.0",
   "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
 }
