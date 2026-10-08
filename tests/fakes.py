@@ -516,7 +516,6 @@ def event_log_path(tmp_path: Path) -> Path:
 
 
 def real_services(
-    cwd: str,
     tmp_path: Path,
     *,
     runner: ProcessRunner,
@@ -537,7 +536,6 @@ def real_services(
     if eventlog is None:
         eventlog = FileEventLog(event_log_path(tmp_path))
     return Services.from_config(
-        cwd,
         session_id=session_id,
         runner=runner,
         eventlog=eventlog,

@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None, *, services: Services | None = None) -> 
         return 2
 
     if services is None:
-        services = Services.from_config(project_cwd, session_id=session_id)
+        services = Services.from_config(session_id=session_id)
 
     started = time.monotonic()
     cached = services.cache.read(session_id)

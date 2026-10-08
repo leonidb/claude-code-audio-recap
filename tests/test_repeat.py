@@ -69,8 +69,8 @@ def make_services(
 
     runner = _runner_and_captured[0]
 
-    def _build(cwd: str = "/proj", *, dry_run: bool = False) -> Services:
-        return real_services(cwd, tmp_path, runner=runner, dry_run=dry_run)
+    def _build(*, dry_run: bool = False) -> Services:
+        return real_services(tmp_path, runner=runner, dry_run=dry_run)
 
     return _build
 
@@ -281,7 +281,7 @@ def test_dry_run_skips_say_in_repeat_cache_hit(
     cache.write("dry-sid", "Edited a file.", "A short reply.")
     rc = repeat.main(
         ["repeat", "--session-id", "dry-sid", "--cwd", str(tmp_path)],
-        services=make_services(str(tmp_path), dry_run=True),
+        services=make_services(dry_run=True),
     )
     assert rc == 0
     assert say_calls == []

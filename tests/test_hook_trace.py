@@ -35,10 +35,8 @@ def _stub_runner(claude_stdout: str = "Edited stuff.") -> FakeProcessRunner:
     return FakeProcessRunner({**audio_handlers(), "claude": claude})
 
 
-def _services(
-    cwd: str, tmp_path: Path, runner: FakeProcessRunner, *, trace: bool = False
-) -> Services:
-    """Production graph wired to ``runner`` + tmp roots, for ``cwd``.
+def _services(tmp_path: Path, runner: FakeProcessRunner, *, trace: bool = False) -> Services:
+    """Production graph wired to ``runner`` + tmp roots.
 
     ``trace`` injects a TRACE-enabled event log at the graph's log path,
     which is what ``AUDIO_RECAP_LOG_LEVEL=trace`` makes the composition
@@ -46,7 +44,7 @@ def _services(
     """
 
     eventlog = FileEventLog(event_log_path(tmp_path), trace_enabled=True) if trace else None
-    return real_services(cwd, tmp_path, runner=runner, eventlog=eventlog)
+    return real_services(tmp_path, runner=runner, eventlog=eventlog)
 
 
 def _enabled_payload(cwd: str = "/proj") -> dict[str, Any]:
@@ -93,7 +91,7 @@ def test_trace_off_by_default_omits_payload_and_prompts(tmp_path: Path, log_path
 
     payload = _enabled_payload()
     seed_enabled(tmp_path, payload)
-    services = _services("/proj", tmp_path, _stub_runner())
+    services = _services(tmp_path, _stub_runner())
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -107,9 +105,7 @@ def test_trace_on_emits_payload_and_recap_io(tmp_path: Path, log_path: Path) -> 
 
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(
-        str(tmp_path), tmp_path, _stub_runner(claude_stdout="Edited a file.\n"), trace=True
-    )
+    services = _services(tmp_path, _stub_runner(claude_stdout="Edited a file.\n"), trace=True)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -130,7 +126,7 @@ def test_trace_on_emits_segment_pre_post_transform(tmp_path: Path, log_path: Pat
 
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(str(tmp_path), tmp_path, _stub_runner(), trace=True)
+    services = _services(tmp_path, _stub_runner(), trace=True)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -151,7 +147,7 @@ def test_trace_on_logs_traceback_when_recap_subprocess_fails(
     runner = FakeProcessRunner({**audio_handlers(), "claude": claude})
     payload = _enabled_payload(str(tmp_path))
     seed_enabled(tmp_path, payload)
-    services = _services(str(tmp_path), tmp_path, runner, trace=True)
+    services = _services(tmp_path, runner, trace=True)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -174,7 +170,7 @@ def test_first_fire_omits_since_last_fire_ms(tmp_path: Path, log_path: Path) -> 
 
     payload = _enabled_payload()
     seed_enabled(tmp_path, payload)
-    services = _services("/proj", tmp_path, _stub_runner())
+    services = _services(tmp_path, _stub_runner())
 
     assert hook.main(raw_payload(payload), services=services) == 0
     text = log_path.read_text(encoding="utf-8")
@@ -192,7 +188,7 @@ def test_subsequent_fire_includes_non_negative_since_last_fire_ms(
 
     payload = _enabled_payload()
     seed_enabled(tmp_path, payload)
-    services = _services("/proj", tmp_path, _stub_runner())
+    services = _services(tmp_path, _stub_runner())
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert hook.main(raw_payload(payload), services=services) == 0

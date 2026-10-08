@@ -71,7 +71,7 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     if services is None:
         # Services builds the real event log, with its trace level from
         # ``AUDIO_RECAP_LOG_LEVEL``.
-        services = Services.from_config(cwd, session_id=session_id)
+        services = Services.from_config(session_id=session_id)
     log = services.eventlog
 
     # State gate — before the transcript is opened or the turn is logged. A

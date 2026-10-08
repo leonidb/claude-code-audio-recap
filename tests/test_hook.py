@@ -95,7 +95,7 @@ class _CountingRecap:
 
 
 def _mock_services(
-    cwd: str, tmp_path: Path, *, dry_run: bool = False
+    tmp_path: Path, *, dry_run: bool = False
 ) -> tuple[Services, dict[str, list[Any]]]:
     """Real component graph + a FakeProcessRunner with default-success handlers.
 
@@ -114,9 +114,7 @@ def _mock_services(
         "afinfo": [],
         "afplay": [],
     }
-    services = real_services(
-        cwd, tmp_path, runner=_runner_with_default_handlers(calls), dry_run=dry_run
-    )
+    services = real_services(tmp_path, runner=_runner_with_default_handlers(calls), dry_run=dry_run)
     services.recap_fallback = _CountingRecap(services.recap_fallback, calls["rule_based"])
     return services, calls
 
@@ -126,8 +124,8 @@ def _mock_services(
 
 def test_default_state_skips_narration(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     # No state file saved → default off → nothing speaks.
-    raw, payload = _raw_fixture("stop_payload.json")
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    raw, _ = _raw_fixture("stop_payload.json")
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
     assert calls["claude_p"] == []
     assert calls["rule_based"] == []
@@ -138,7 +136,7 @@ def test_default_state_skips_narration(tmp_path: Path, capsys: pytest.CaptureFix
 def test_enabled_state_narrates_recap_then_message(tmp_path: Path) -> None:
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw, services=services) == 0
 
@@ -160,7 +158,7 @@ def test_explicitly_disabled_state_exits_immediately(
     sid = payload.get("session_id") or "_global"
     cwd = payload.get("cwd") or ""
     FileStateStore(state_root(tmp_path)).save(State(enabled=False), sid, cwd)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw, services=services) == 0
     assert calls["claude_p"] == []
@@ -186,7 +184,7 @@ def test_enabled_under_one_cwd_is_seen_when_hook_fires_under_another(tmp_path: P
     assert drifted_cwd != payload["cwd"]
     FileStateStore(state_root(tmp_path)).save(State(enabled=True), sid, drifted_cwd)
 
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
 
     # Narration ran → the enabled flag was found despite the cwd drift.
@@ -196,7 +194,7 @@ def test_enabled_under_one_cwd_is_seen_when_hook_fires_under_another(tmp_path: P
 def test_skip_if_no_tool_use_fires_on_qa_fixture(tmp_path: Path) -> None:
     raw, payload = _raw_fixture("stop_payload_qa.json")
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw, services=services) == 0
     # No recap generated: Q&A has zero tool-use blocks.
@@ -230,7 +228,7 @@ def test_skip_if_message_words_lt_fires_on_short_message(tmp_path: Path) -> None
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert calls["claude_p"] == []
@@ -255,7 +253,7 @@ def test_claude_p_failure_triggers_rule_based_fallback(
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services = real_services(payload["cwd"], tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
 
     assert hook.main(raw, services=services) == 0
     # First say is the rule-based recap; second is the message.
@@ -279,7 +277,7 @@ def test_tts_failure_exits_1_with_stderr_log(
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services = real_services(payload["cwd"], tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
 
     assert hook.main(raw, services=services) == 1
     assert "TTS failed" in capsys.readouterr().err
@@ -305,7 +303,7 @@ def test_pure_tool_use_turn_speaks_only_recap(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     # One say for the recap; message is empty so no second say.
@@ -314,14 +312,14 @@ def test_pure_tool_use_turn_speaks_only_recap(tmp_path: Path) -> None:
 
 
 def test_invalid_json_on_stdin_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(b"{not json", services=services) == 1
     assert calls["say"] == []
     assert "invalid hook JSON" in capsys.readouterr().err
 
 
 def test_non_object_payload_exits_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    services, _ = _mock_services("/proj", tmp_path)
+    services, _ = _mock_services(tmp_path)
     assert hook.main(b"[1, 2, 3]", services=services) == 1
     assert "not a JSON object" in capsys.readouterr().err
 
@@ -344,7 +342,7 @@ def test_last_assistant_message_field_is_used_when_present(tmp_path: Path) -> No
         "last_assistant_message": "A short direct reply.",
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
     assert calls["claude_p"] == []
     assert len(calls["say"]) == 1
@@ -388,7 +386,7 @@ def test_transcript_path_synthesizes_inline_transcript(tmp_path: Path) -> None:
         "last_assistant_message": long_message,
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     # Recap fired (tool use synthesized from JSONL), message spoken verbatim.
@@ -415,7 +413,7 @@ def test_transcript_with_invalid_utf8_degrades_instead_of_crashing(tmp_path: Pat
         "last_assistant_message": "Here is the reply.",
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     # Fell back to the last_assistant_message field — still narrated.
@@ -431,7 +429,7 @@ def test_real_payload_fixture_narrates_summarized_message_no_recap(tmp_path: Pat
     # and the summary is spoken instead of the verbatim message.
     raw, payload = _raw_fixture("stop_payload_real.json")
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
 
     assert calls["rule_based"] == []
@@ -458,7 +456,7 @@ def test_unreadable_transcript_path_falls_back_to_message_only(tmp_path: Path) -
         "last_assistant_message": "Reply text.",
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
     # No tool uses → recap skipped; message still narrates.
     assert calls["claude_p"] == []
@@ -512,7 +510,7 @@ def test_multi_text_block_turn_narrates_all_text_blocks_in_order(tmp_path: Path)
         "last_assistant_message": confirmation,
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Recap fires (two tool uses) + message. Two say calls.
@@ -558,7 +556,7 @@ def test_inline_transcript_wins_over_last_assistant_message(tmp_path: Path) -> N
         "last_assistant_message": final_half,
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Recap (one tool_use, message above threshold) + message → two say calls.
@@ -586,7 +584,7 @@ def test_two_sessions_in_same_project_have_independent_state(
         "hook_event_name": "Stop",
         "last_assistant_message": "Reply for B.",
     }
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload_b), services=services) == 0
     # B saw default off, narrated nothing.
     assert calls["say"] == []
@@ -642,7 +640,7 @@ def test_long_message_is_summarized_via_claude_p(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services("/proj", tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Two claude -p calls: recap + summarizer.
@@ -696,7 +694,7 @@ def test_summarizer_failure_falls_back_to_verbatim(
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services("/proj", tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Two say calls: recap + verbatim long message (NOT summary).
@@ -752,7 +750,7 @@ def test_recap_and_summary_run_concurrently(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services("/proj", tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw_payload(payload), services=services) == 0
     # Both segments spoke — the barrier released, so both subprocess
     # calls were in flight at once.
@@ -800,7 +798,7 @@ def test_summarizer_failure_truncates_long_verbatim_with_cue(tmp_path: Path) -> 
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services("/proj", tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Recap + truncated message — two say calls.
@@ -856,7 +854,7 @@ def test_summarizer_failure_under_cap_speaks_verbatim_unchanged(tmp_path: Path) 
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services("/proj", tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw_payload(payload), services=services) == 0
     assert len(said) == 2
     assert said[1][-1] == _LONG_MESSAGE
@@ -866,7 +864,7 @@ def test_summarizer_failure_under_cap_speaks_verbatim_unchanged(tmp_path: Path) 
 def test_successful_narration_writes_cache(tmp_path: Path) -> None:
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(payload["cwd"], tmp_path)
+    services, _ = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
 
     got = FileNarrationCache(cache_root(tmp_path)).read(payload["session_id"])
@@ -880,7 +878,7 @@ def test_disabled_state_does_not_write_cache(tmp_path: Path) -> None:
     raw, payload = _raw_fixture("stop_payload.json")
     # No _seed_enabled — narration is off. Hook should exit early without
     # touching the cache.
-    services, _ = _mock_services(payload["cwd"], tmp_path)
+    services, _ = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
     assert FileNarrationCache(cache_root(tmp_path)).read(payload["session_id"]) is None
 
@@ -908,7 +906,7 @@ def test_short_message_is_not_summarized(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
     # Exactly one claude -p call (recap), no summarizer call.
     assert len(calls["claude_p"]) == 1
@@ -956,7 +954,7 @@ def test_dry_run_skips_say_subprocess(tmp_path: Path, log_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(str(cwd), tmp_path, dry_run=True)
+    services, calls = _mock_services(tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Recap pipeline still runs (claude -p called) but say is skipped.
@@ -994,7 +992,7 @@ def test_dry_run_logs_recap_text_and_message_text(tmp_path: Path, log_path: Path
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(str(cwd), tmp_path, dry_run=True)
+    services, _ = _mock_services(tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1011,7 +1009,7 @@ def test_normal_fire_logs_tts_status_spoken(tmp_path: Path, log_path: Path) -> N
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(payload["cwd"], tmp_path)
+    services, _ = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1031,7 +1029,7 @@ def test_tts_failure_logs_tts_status_failed(tmp_path: Path, log_path: Path) -> N
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services = real_services(payload["cwd"], tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
 
     assert hook.main(raw, services=services) == 1
     text = log_path.read_text(encoding="utf-8")
@@ -1075,7 +1073,7 @@ def test_long_message_path_logs_message_text_snippet(tmp_path: Path, log_path: P
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
+    services = real_services(tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1137,7 +1135,7 @@ def test_recap_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
+    services = real_services(tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1193,7 +1191,7 @@ def test_message_text_logged_uncapped(tmp_path: Path, log_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services = real_services(str(tmp_path), tmp_path, runner=runner, eventlog=_trace_log(log_path))
+    services = real_services(tmp_path, runner=runner, eventlog=_trace_log(log_path))
     assert hook.main(raw_payload(payload), services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1233,7 +1231,7 @@ def test_dry_run_still_writes_cache(tmp_path: Path) -> None:
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(str(cwd), tmp_path, dry_run=True)
+    services, _ = _mock_services(tmp_path, dry_run=True)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     got = FileNarrationCache(cache_root(tmp_path)).read("cache-sid")
@@ -1287,7 +1285,7 @@ def test_audio_recap_repeat_slash_command_short_circuits_pipeline(
         session_id="repeat-sid",
     )
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert calls["claude_p"] == []
@@ -1320,7 +1318,7 @@ def test_audio_recap_repeat_short_circuit_preserves_existing_cache(tmp_path: Pat
         session_id="repeat-sid",
     )
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services("/proj", tmp_path)
+    services, _ = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     cached = FileNarrationCache(cache_root(tmp_path)).read("repeat-sid")
@@ -1363,7 +1361,7 @@ def test_audio_recap_on_slash_command_runs_pipeline_skips_cache(
         ],
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Pipeline ran: recap (one tool use, message ≥30 words) and TTS.
@@ -1390,7 +1388,7 @@ def test_other_slash_command_flows_through_normally(tmp_path: Path) -> None:
         assistant_text=" ".join(["cleared"] * 35),
     )
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     # Regular pipeline: message ≥30 words but no tool_uses → recap is
@@ -1410,7 +1408,7 @@ def test_untagged_user_message_flows_through_normally(tmp_path: Path) -> None:
         extra_user_suffix="just a regular prompt",
     )
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw_payload(payload), services=services) == 0
 
     assert len(calls["say"]) == 1
@@ -1490,7 +1488,7 @@ def test_synthesized_transcript_carries_user_message_for_command_detection(
         "transcript_path": str(jsonl),
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     # Short-circuited: no recap, no say, despite the JSONL carrying
@@ -1512,7 +1510,7 @@ def test_default_path_emits_two_stage_telemetry(tmp_path: Path, log_path: Path) 
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
     assert hook.main(raw, services=services) == 0
 
     # Two segments (recap + message) → two render calls + two afinfo
@@ -1561,7 +1559,7 @@ def test_short_aiff_falls_back_and_eventlog_records_reason(tmp_path: Path, log_p
 
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services = real_services(payload["cwd"], tmp_path, runner=runner)
+    services = real_services(tmp_path, runner=runner)
     assert hook.main(raw, services=services) == 0
 
     text = log_path.read_text(encoding="utf-8")
@@ -1576,7 +1574,7 @@ def test_enabled_fire_records_presence_heartbeat(tmp_path: Path) -> None:
     """A narrating session registers itself under active/."""
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
-    services, _ = _mock_services(payload["cwd"], tmp_path)
+    services, _ = _mock_services(tmp_path)
 
     assert hook.main(raw, services=services) == 0
 
@@ -1592,7 +1590,7 @@ def test_disabled_session_does_not_record_a_heartbeat(tmp_path: Path) -> None:
     sessions announce their names.
     """
     raw, payload = _raw_fixture("stop_payload.json")  # no state seeded → disabled
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw, services=services) == 0
     assert calls["say"] == []  # disabled: no narration
@@ -1621,7 +1619,6 @@ def test_heartbeat_marks_the_start_of_a_narration_not_its_success(tmp_path: Path
     raw, payload = _raw_fixture("stop_payload.json")
     seed_enabled(tmp_path, payload)
     services = real_services(
-        payload["cwd"],
         tmp_path,
         runner=FakeProcessRunner({**audio_handlers(), "claude": claude, "say": say}),
     )
@@ -1641,7 +1638,7 @@ def test_turn_with_nothing_to_say_still_counts_as_a_narrating_session(tmp_path: 
     """
     payload: dict[str, Any] = {"session_id": "sid-quiet", "cwd": "/proj", "transcript": []}
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(payload["cwd"], tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert calls["say"] == []  # nothing was spoken
@@ -1662,7 +1659,7 @@ def test_repeat_slash_command_registers_the_session(tmp_path: Path) -> None:
         session_id="repeat-sid",
     )
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services("/proj", tmp_path)
+    services, calls = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert calls["say"] == []  # the Stop hook itself spoke nothing
@@ -1676,7 +1673,7 @@ def test_repeat_on_a_disabled_session_registers_nothing(tmp_path: Path) -> None:
         "<command-name>/audio-recap:repeat</command-name>",
         session_id="repeat-sid",
     )  # no state seeded → disabled
-    services, _ = _mock_services("/proj", tmp_path)
+    services, _ = _mock_services(tmp_path)
 
     assert hook.main(raw_payload(payload), services=services) == 0
 
@@ -1719,7 +1716,7 @@ def test_renamed_session_label_comes_from_custom_title(tmp_path: Path) -> None:
         "transcript_path": str(transcript),
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(cwd, tmp_path)
+    services, calls = _mock_services(tmp_path)
     # One other session live → the narration is labeled.
     services.presence_registry.heartbeat("some-other-session")
 
@@ -1758,7 +1755,7 @@ def test_label_survives_a_turn_with_no_recap(tmp_path: Path) -> None:
         "transcript_path": str(transcript),
     }
     seed_enabled(tmp_path, payload)
-    services, calls = _mock_services(cwd, tmp_path)
+    services, calls = _mock_services(tmp_path)
     services.presence_registry.heartbeat("some-other-session")
 
     assert hook.main(raw_payload(payload), services=services) == 0

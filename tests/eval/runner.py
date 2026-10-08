@@ -216,7 +216,6 @@ def _fire_hook(payload: dict[str, Any], run_dir: Path) -> tuple[int, str]:
 
     raw = json.dumps(payload).encode("utf-8")
     services = Services.from_config(
-        payload["cwd"],
         session_id=payload["session_id"],
         eventlog=default_event_log(run_dir / "logs" / "audio-recap.log"),
         audio_recap_root=run_dir,
