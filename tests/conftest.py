@@ -1,7 +1,9 @@
 """Test setup shared across the suite.
 
 The suite uses pure dependency injection — no ``monkeypatch``, no
-autouse redirect fixture. Tests that touch the filesystem construct
+autouse redirect fixture. ``tests/test_package.py`` fails on any
+``monkeypatch`` use, so a test that needs one surfaces in review as the
+missing seam it is. Tests that touch the filesystem construct
 their file-backed services with tmp paths (see
 :func:`tests.fakes.real_services` and the ``*_root`` helpers) so the
 developer's real ``~/.claude`` tree is never touched.
