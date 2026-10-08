@@ -31,6 +31,24 @@ jobs:
       - name: Run pytest
         run: uv run --python ${{ matrix.python-version }} pytest -q
 
+  # Audio Recap runs only on macOS, and scripts/run.sh stops before Python
+  # elsewhere, so the tests that go through run.sh to Python run here only.
+  # Python 3.9 is what /usr/bin/python3 is on a stock Mac.
+  test-macos:
+    name: pytest (macOS, Python 3.9)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Python 3.9
+        run: uv python install 3.9
+
+      - name: Run pytest
+        run: uv run --python 3.9 pytest -q
+
   static:
     name: ruff + ty
     runs-on: ubuntu-latest
