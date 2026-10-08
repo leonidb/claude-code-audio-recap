@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,6 @@ from audio_recap.payload import GLOBAL_SESSION_ID
 from audio_recap.presence import FilePresenceRegistry, default_presence_registry
 
 _PLUGIN_ROOT = Path(__file__).parents[1]
-_RUN_SH = _PLUGIN_ROOT / "scripts" / "run.sh"
 
 
 def _registry(tmp_path: Path) -> FilePresenceRegistry:
@@ -289,10 +289,11 @@ def test_unset_home_still_exits_zero(tmp_path: Path) -> None:
     """
 
     result = subprocess.run(
-        [str(_RUN_SH), str(_PLUGIN_ROOT), "session-end"],
+        [sys.executable, "-m", "audio_recap", "session-end"],
         input=json.dumps({"session_id": "sid-a"}),
         capture_output=True,
         text=True,
+        cwd=_PLUGIN_ROOT,
         env={k: v for k, v in os.environ.items() if k != "HOME"},
         check=False,
     )

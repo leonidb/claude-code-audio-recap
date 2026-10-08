@@ -6,8 +6,10 @@ verbatim instead of being summarized," "the hook took 90 s." All three
 are debuggable from a record of the decisions the hook made on each
 fire; without one, we have to guess.
 
-:class:`FileEventLog` owns one append-only file. Every hook invocation
-and every slash-command invocation appends one or more lines:
+:class:`FileEventLog` owns one append-only file. Every Stop-hook
+invocation in a session with narration on, and every slash-command
+invocation, appends one or more lines (a Stop hook in a session with
+narration off writes no per-turn line):
 
 - :meth:`FileEventLog.event` writes structured ``key=value``-formatted
   INFO lines. Use this for "what path did the code take" entries the

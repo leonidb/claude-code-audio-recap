@@ -6,8 +6,8 @@ against the REAL :class:`audio_recap.lock.FcntlPlaybackLock` and
 tmp dir so the real ``~/.claude`` tree is never touched:
 
 - **Stop** → :func:`audio_recap.hook.main` (the only writer of a heartbeat)
-- **SessionEnd** → ``scripts/run.sh <root> session-end`` (a real subprocess, the
-  verbatim ``hooks.json`` command, with ``HOME`` pointed at the tmp root)
+- **SessionEnd** → ``python -m audio_recap session-end`` (a real subprocess, the
+  command ``scripts/run.sh`` execs, with ``HOME`` pointed at the tmp root)
 - **/audio-recap:off** → :func:`audio_recap.command.main`
 
 Asserts the whole flow: playback serialises one-at-a-time under contention, a
@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -40,7 +41,6 @@ from tests.fakes import FakeEventLog, FakeProcessRunner, audio_handlers, complet
 
 RECAP = "Edited a file."
 _PLUGIN_ROOT = Path(__file__).parents[1]
-_RUN_SH = _PLUGIN_ROOT / "scripts" / "run.sh"
 
 
 # ---------------------------------------------------------------------------
@@ -83,21 +83,23 @@ def _shared_root(home: Path) -> Path:
 
 
 def _session_end(session_id: str, cwd: str, home: Path) -> None:
-    """Fire the REAL SessionEnd handler, routed the way CC routes it.
+    """Fire the REAL SessionEnd handler as a separate process.
 
-    Runs ``scripts/run.sh <plugin-root> session-end`` as a subprocess with CC's
-    event payload on stdin — the exact command string in ``hooks/hooks.json``.
-    Going through ``run.sh`` rather than calling
-    :func:`audio_recap.session_end.main` keeps the manifest wiring and the
-    subcommand name under test, and lets the handler resolve its own storage
-    root from ``$HOME`` as it does in production.
+    Runs ``python -m audio_recap session-end`` (what ``scripts/run.sh`` execs on
+    macOS) with CC's event payload on stdin. A separate process, rather than
+    calling :func:`audio_recap.session_end.main`, keeps the subcommand name
+    under test and lets the handler resolve its own storage root from
+    ``$HOME`` as it does in production. ``run.sh`` itself is left out: off
+    macOS it stops before Python. The hooks.json command (``run.sh``, the
+    plugin root, ``session-end``) is pinned in ``tests/test_package.py``.
     """
 
     result = subprocess.run(
-        [str(_RUN_SH), str(_PLUGIN_ROOT), "session-end"],
+        [sys.executable, "-m", "audio_recap", "session-end"],
         input=json.dumps({"session_id": session_id, "cwd": cwd}),
         capture_output=True,
         text=True,
+        cwd=_PLUGIN_ROOT,
         env={**os.environ, "HOME": str(home)},
         check=False,
     )
@@ -272,7 +274,7 @@ def test_heartbeat_lifecycle_across_real_entrypoints(tmp_path: Path) -> None:
     _fire_stop(sid, cwd, shared)
     assert hb.stat().st_mtime > stale
 
-    # SessionEnd (the real shell hook) → delete.
+    # SessionEnd (the real handler, in its own process) → delete.
     _session_end(sid, cwd, tmp_path)
     assert not hb.exists()
 
@@ -323,7 +325,7 @@ def test_global_sentinel_session_registers_and_retires_like_any_other(tmp_path: 
     fire_unsubstituted()
     assert hb.stat().st_mtime > stale
 
-    # SessionEnd — the shell guard must not reject the leading underscore.
+    # SessionEnd — the handler must not reject the leading underscore.
     _session_end("_global", cwd, tmp_path)
     assert not hb.exists()
 

@@ -4,13 +4,15 @@
 stray ``audio_recap/`` directory in the user's working directory (a checkout of
 this repo, or a worktree) would shadow the installed plugin and run stale code.
 ``run.sh`` cd's to the plugin root before exec to stop that; this test locks in
-the fix end to end.
+the fix end to end. Off macOS ``run.sh`` stops before Python, so the test runs
+on macOS only.
 """
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,6 +33,7 @@ def _plant_decoy(directory: Path) -> None:
     )
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="run.sh runs Python on macOS only")
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash required to run run.sh")
 def test_run_sh_decoy_in_cwd_does_not_shadow_installed_package(tmp_path: Path) -> None:
     """Invoked from a cwd holding a decoy ``audio_recap/``, run.sh runs the real one."""

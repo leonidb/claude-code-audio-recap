@@ -462,11 +462,19 @@ class TTSRunner:
                 recap = f"{label}. {recap}"
             else:
                 message = f"{label}. {message}"
+            # The label is the user's /rename or Claude Code's topic title,
+            # which comes from the conversation, so its text stays out of the
+            # default (INFO) log.
             log.event(
                 event,
                 session_id=session_id,
-                session_label=label,
+                labeled=True,
                 active_sessions=active_others,
+            )
+            log.event_trace(
+                "trace_session_label",
+                session_id=session_id,
+                session_label=label,
             )
 
         # --- Part A (pre-render): synthesise every segment BEFORE the lock ---

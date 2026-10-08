@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from importlib.metadata import version
 from pathlib import Path
 
@@ -17,6 +18,7 @@ _SHIPPED_COMMANDS = {"on", "off", "status", "repeat"}
 # The CC events the plugin subscribes to. ``Stop`` narrates (and records the
 # session's presence); ``SessionEnd`` retires that presence. Nothing else.
 _SUBSCRIBED_HOOKS = {"Stop", "SessionEnd"}
+_HOOK_SUBCOMMANDS = {"Stop": "hook", "SessionEnd": "session-end"}
 
 
 def test_version_matches_packaging_metadata() -> None:
@@ -70,13 +72,24 @@ def test_plugin_subscribes_to_exactly_two_hooks() -> None:
 
 
 def test_registered_hook_commands_exist() -> None:
-    """A typo in a hook command is a silent no-op in production."""
+    """A typo in a hook command is a silent no-op in production.
+
+    Each hook runs ``run.sh`` with the plugin root and its own subcommand, as
+    shell words: a swapped or missing subcommand would route the event to the
+    wrong handler.
+    """
 
     hooks = json.loads((_REPO_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-    for matchers in hooks["hooks"].values():
+    for event, matchers in hooks["hooks"].items():
         for matcher in matchers:
             for entry in matcher["hooks"]:
-                script = entry["command"].split()[0].replace("${CLAUDE_PLUGIN_ROOT}/", "")
+                argv = shlex.split(entry["command"])
+                assert argv == [
+                    "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh",
+                    "${CLAUDE_PLUGIN_ROOT}",
+                    _HOOK_SUBCOMMANDS[event],
+                ], entry["command"]
+                script = argv[0].replace("${CLAUDE_PLUGIN_ROOT}/", "")
                 assert (_REPO_ROOT / script).is_file(), script
 
 

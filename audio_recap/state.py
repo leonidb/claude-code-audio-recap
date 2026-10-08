@@ -146,8 +146,9 @@ class FileStateStore:
           fresh sessions; ``False`` (the standing default) preserves the
           original "fresh session is silent until ``/audio-recap:on``"
           behavior.
-        - **Corrupt JSON / wrong-shape payload / non-bool ``enabled`` /
-          missing ``enabled`` key** → ``State(enabled=False)`` regardless
+        - **Unreadable file (permissions, not UTF-8) / corrupt JSON /
+          wrong-shape payload / non-bool ``enabled`` / missing
+          ``enabled`` key** → ``State(enabled=False)`` regardless
           of ``default_enabled``. Explicit failure must surface as silence
           so a user with a broken file isn't misled into thinking
           audio is live.
@@ -160,6 +161,9 @@ class FileStateStore:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return State(enabled=default_enabled)
+        except (OSError, UnicodeDecodeError) as e:
+            _log_corrupt(path, type(e).__name__)
+            return State(enabled=False)
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:

@@ -118,8 +118,8 @@ def test_empty_string_value_is_emitted_as_quoted_empty(elog: FileEventLog, log_p
 # ---------- integration: hook + command emit the expected events ----------
 
 
-def test_hook_emits_session_id_and_state_events(log_path: Path, tmp_path: Path) -> None:
-    """One Stop fire ends up with at least the ``fired`` and ``state`` events."""
+def test_hook_writes_nothing_for_a_disabled_session(log_path: Path, tmp_path: Path) -> None:
+    """A Stop fire in a session with narration off leaves nothing in the log."""
 
     from audio_recap import hook
 
@@ -134,10 +134,8 @@ def test_hook_emits_session_id_and_state_events(log_path: Path, tmp_path: Path) 
     services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
 
     assert hook.main(raw_payload(payload), services=services) == 0
-    text = log_path.read_text(encoding="utf-8")
-    assert "event=stop" in text
-    assert "session_id=log-test-sid" in text
-    assert "state=disabled" in text
+    assert not log_path.exists() or "event=stop" not in log_path.read_text(encoding="utf-8")
+    assert not (log_path.parent / ".last_fire_stop").exists()
 
 
 def test_command_emits_action_and_verb(log_path: Path, tmp_path: Path) -> None:

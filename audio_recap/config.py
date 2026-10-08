@@ -177,9 +177,10 @@ class Config:
 
         1. Empty / missing ``cwd``, or no ``.audio-recap/config.json``
            at that path → return :meth:`default`.
-        2. Read fails (``OSError``), JSON is malformed, or the payload
-           is not a JSON object → log ``event=config error=...`` to
-           ``eventlog`` and return :meth:`default`. Never raises.
+        2. Read fails (``OSError``), the bytes are not UTF-8, JSON is
+           malformed, or the payload is not a JSON object → log
+           ``event=config error=...`` to ``eventlog`` and return
+           :meth:`default`. Never raises.
         3. Otherwise apply known fields via :func:`_apply_overrides`.
 
         Unknown fields are silently ignored so a newer config file on
@@ -192,11 +193,11 @@ class Config:
         if not cwd:
             return base
         path = Path(cwd) / ".audio-recap" / "config.json"
-        if not path.is_file():
-            return base
         try:
+            if not path.is_file():
+                return base
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             eventlog.event("config", path=str(path), error=str(e))
             return base
         if not isinstance(data, dict):

@@ -19,9 +19,37 @@
 #
 # Usage standalone (e.g. piping a fixture into the hook):
 #   scripts/run.sh hook
-#   scripts/run.sh command status
+#   scripts/run.sh command --cwd "$PWD" status
+# Pass ``--cwd`` when running a command by hand: the wrapper cd's to the
+# plugin root before exec (below), so without it the command would treat
+# the plugin root as the project directory.
+#
+# Off macOS the wrapper stops before Python (platform guard below). That
+# is the one place it knows subcommand names: ``hook`` and ``session-end``
+# exit silently, everything else prints a one-line notice.
 
 set -euo pipefail
+
+# Audio Recap speaks with the macOS ``say`` command; on any other platform
+# it stays out of the way. The hooks exit 0 silently, since a hook error
+# would show after every turn; anything a person ran (a slash command, a
+# by-hand call) gets one plain sentence, so ``/audio-recap:on`` cannot
+# switch narration on. Checked before Python, which some platforms cannot
+# even start. The first two arguments are checked because the plugin root,
+# when given, comes first and need not start with ``/`` (Git Bash passes
+# ``C:/...``). A missing or failing ``uname`` counts as "not macOS".
+if ! platform="$(uname -s 2>/dev/null)"; then
+  platform=""
+fi
+if [[ "$platform" != "Darwin" ]]; then
+  for arg in "${1:-}" "${2:-}"; do
+    if [[ "$arg" == "hook" || "$arg" == "session-end" ]]; then
+      exit 0
+    fi
+  done
+  echo "Audio Recap works only on macOS."
+  exit 0
+fi
 
 # A leading absolute path is treated as the plugin root; otherwise we
 # self-locate via BASH_SOURCE. The "looks like a Python module" check
