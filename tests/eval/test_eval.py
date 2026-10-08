@@ -17,8 +17,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
+from audio_recap.state import FileStateStore, State
 from tests.eval import harvest, runner
 from tests.eval.prompts import PROMPTS, smoke_prompts
 
@@ -289,73 +288,19 @@ def test_parse_stream_json_empty_output_is_empty_blocks_no_error() -> None:
     assert error is None
 
 
-def test_dry_run_config_context_manager_writes_and_restores(tmp_path: Path) -> None:
-    """Setup writes the dry-run override; teardown removes it."""
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    bundle = tmp_path / "bundle"
-    bundle.mkdir()
-    cfg = repo / ".audio-recap" / "config.json"
-    assert not cfg.exists()
-
-    with runner._dry_run_config(repo, bundle):
-        assert cfg.exists()
-        assert json.loads(cfg.read_text(encoding="utf-8")) == {"dry_run": True}
-
-    # Teardown removed both the file and the now-empty parent dir.
-    assert not cfg.exists()
-    assert not cfg.parent.exists()
-
-
-def test_dry_run_config_context_manager_preserves_prior_file(tmp_path: Path) -> None:
-    """A pre-existing config gets snapshotted to the bundle and restored."""
-
-    repo = tmp_path / "repo"
-    (repo / ".audio-recap").mkdir(parents=True)
-    cfg = repo / ".audio-recap" / "config.json"
-    prior = json.dumps({"dry_run": False, "future_field": "ok"}) + "\n"
-    cfg.write_text(prior, encoding="utf-8")
-    bundle = tmp_path / "bundle"
-    bundle.mkdir()
-
-    with runner._dry_run_config(repo, bundle):
-        # Inside the context the file carries the dry-run override …
-        assert json.loads(cfg.read_text(encoding="utf-8")) == {"dry_run": True}
-        # … and the bundle has the snapshot.
-        assert (bundle / "config.json.backup").read_text(encoding="utf-8") == prior
-
-    # On exit, the original file is restored verbatim.
-    assert cfg.read_text(encoding="utf-8") == prior
-
-
-def test_dry_run_config_restores_on_exception(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    bundle = tmp_path / "bundle"
-    bundle.mkdir()
-    cfg = repo / ".audio-recap" / "config.json"
-
-    with pytest.raises(RuntimeError), runner._dry_run_config(repo, bundle):
-        assert cfg.exists()
-        raise RuntimeError("simulated runner crash")
-
-    assert not cfg.exists()
-
-
 # ---------- in-process hook fire (no claude CLI; synthesized payload) ----------
 
 
 def test_fire_hook_in_process_writes_to_bundle_log(tmp_path: Path) -> None:
     """``_fire_hook`` runs the Stop hook in-process with a bundle-rooted Services.
 
-    The synthesized payload has no pre-seeded state, so the default-off
-    gate stops the hook before TTS. An off session writes nothing at INFO,
-    so the cwd's config turns on trace logging: the one TRACE
-    ``state=disabled`` line MUST land in the bundle-local log
-    (``run_dir/logs/audio-recap.log``), never the developer's real log.
-    That's the injection contract the runner relies on, and the hook's
-    stderr is captured rather than leaked.
+    The session is seeded enabled in the bundle's state dir, so the hook
+    narrates. The turn has no tool use and a two-word reply, so neither the
+    recap nor the summarizer calls ``claude``, and the runner builds the
+    graph with ``dry_run=True``, so nothing plays. The narration's log lines
+    MUST land in the bundle-local log (``run_dir/logs/audio-recap.log``),
+    never the developer's real log: that is the injection contract the
+    runner relies on.
     """
 
     sid = "in-process-test-sid"
@@ -369,21 +314,17 @@ def test_fire_hook_in_process_writes_to_bundle_log(tmp_path: Path) -> None:
     }
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    cfg = tmp_path / ".audio-recap" / "config.json"
-    cfg.parent.mkdir()
-    cfg.write_text(json.dumps({"log_level": "trace"}), encoding="utf-8")
+    FileStateStore(run_dir / "state").save(State(enabled=True), sid, str(tmp_path))
 
     rc, stderr = runner._fire_hook(payload, run_dir)
     assert rc == 0, stderr
 
     log_path = run_dir / "logs" / "audio-recap.log"
-    assert log_path.exists()
     text = log_path.read_text(encoding="utf-8")
     assert f"session_id={sid}" in text
-    assert "state=disabled" in text
-    assert "fired=true" not in text
-    # The hook's "disabled; skipping" stderr line was captured, not leaked.
-    assert "disabled" in stderr
+    assert "fired=true" in text
+    assert "tts_status=dry_run" in text
+    assert "say_done" not in text
 
 
 # ---------- check_run no-failure invariants ----------

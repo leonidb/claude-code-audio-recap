@@ -86,10 +86,19 @@ needs to know who is talking. Since the label exists to disambiguate
 things that can make sound, the property to test is being open and
 enabled, not when a session last spoke. `presence_window_s` survives only
 as an orphan horizon for a hard kill that runs no SessionEnd, and is
-correspondingly long (24h). Accepted: a session enabled by per-cwd
-`default_enabled` rather than by `/audio-recap:on` registers on its first
-narration, since no code of ours runs before then; and an orphan counts
-until the horizon passes, costing at most one unneeded label.
+correspondingly long (24h). Accepted: an orphan counts until the horizon
+passes, costing at most one unneeded label.
+
+**Per-project config removed** (2026-10-08) — `<cwd>/.audio-recap/config.json`
+is no longer read. Trace logging moves to the `AUDIO_RECAP_LOG_LEVEL`
+environment variable; the eval harness sets `dry_run` in code;
+`default_enabled` and the speech-log diagnostic are gone, and the tuning
+overrides with them (those fields keep their shipped defaults). *Why:* the file was a debugging aid,
+not a product feature ("I don't want to over-engineer something which is
+not really, product-wise, a feature … If we can find cheaper ways to debug
+without the need to explain ourselves too much, I think it's worth it"),
+and it was the one thing a repository could ship that switched narration
+on for a session nobody had turned on.
 
 **Identifier conventions** (2026-04-21) — display name "Audio Recap";
 marketplace + repo slug `claude-code-audio-recap`; plugin manifest

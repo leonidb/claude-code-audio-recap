@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_recap import hook
-from audio_recap.services import Services
+from audio_recap.services import Services, default_event_log
 from audio_recap.state import FileStateStore, State
 
 from .prompts import Prompt
@@ -207,17 +207,21 @@ def _fire_hook(payload: dict[str, Any], run_dir: Path) -> tuple[int, str]:
     Builds the production :class:`Services` graph with every file-backed
     root redirected under ``run_dir`` — eventlog, on/off state, and
     narration cache all land in the bundle, never in the developer's
-    ``~/.claude`` tree. The real :class:`SubprocessProcessRunner` is
+    ``~/.claude`` tree. The event log is injected at the bundle path, so
+    ``AUDIO_RECAP_LOG_PATH`` cannot send it elsewhere; TRACE still follows
+    ``AUDIO_RECAP_LOG_LEVEL``. The real :class:`SubprocessProcessRunner` is
     used (``runner`` defaults to it), so ``claude -p`` runs for real;
-    ``say`` is skipped because the dry-run config is active.
+    ``say`` is skipped because the graph is built with ``dry_run=True``.
     """
 
     raw = json.dumps(payload).encode("utf-8")
     services = Services.from_config(
         payload["cwd"],
         session_id=payload["session_id"],
+        eventlog=default_event_log(run_dir / "logs" / "audio-recap.log"),
         audio_recap_root=run_dir,
         transcript_root=run_dir / "cc_projects",
+        dry_run=True,
     )
     stderr = io.StringIO()
     try:
@@ -226,37 +230,6 @@ def _fire_hook(payload: dict[str, Any], run_dir: Path) -> tuple[int, str]:
     except Exception as e:  # defensive — hook.main is designed to return, not raise
         return 1, f"{type(e).__name__}: {e}"
     return rc, stderr.getvalue()
-
-
-@contextlib.contextmanager
-def _dry_run_config(repo_root: Path, run_dir: Path) -> Any:
-    """Write ``<repo>/.audio-recap/config.json`` with dry_run=true; restore on exit.
-
-    The hook reads its per-cwd config from the payload's ``cwd`` (the
-    repo root), so dry-run has to be on disk there for the duration of
-    the run. A pre-existing file is backed up to the run bundle and
-    restored on exit, so a developer who manually toggled dry_run on
-    this repo before invoking the runner doesn't lose their setting.
-    """
-
-    cfg_path = repo_root / ".audio-recap" / "config.json"
-    backup: str | None = None
-    had_dir = cfg_path.parent.is_dir()
-    if cfg_path.exists():
-        backup = cfg_path.read_text(encoding="utf-8")
-        (run_dir / "config.json.backup").write_text(backup, encoding="utf-8")
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text(json.dumps({"dry_run": True}) + "\n", encoding="utf-8")
-    try:
-        yield cfg_path
-    finally:
-        if backup is not None:
-            cfg_path.write_text(backup, encoding="utf-8")
-        else:
-            cfg_path.unlink(missing_ok=True)
-            if not had_dir:
-                with contextlib.suppress(OSError):
-                    cfg_path.parent.rmdir()
 
 
 def _run_prompt(
@@ -317,23 +290,22 @@ def run(
     run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    with _dry_run_config(repo_root, run_dir):
-        turns: list[dict[str, Any]] = []
-        for prompt in prompts:
-            sys.stderr.write(f"[eval] turn {prompt['n']:>2} ({prompt['shape']}) — dispatching…\n")
-            turn = _run_prompt(
-                prompt,
-                cwd=repo_root,
-                run_dir=run_dir,
-                allowed_tools=allowed_tools,
-                timeout_s=timeout_s,
-            )
-            turns.append(turn)
-            sys.stderr.write(
-                f"[eval] turn {prompt['n']:>2} done "
-                f"(blocks={turn['text_block_count']}+{turn['tool_use_count']} "
-                f"hook_exit={turn['hook_exit']})\n"
-            )
+    turns: list[dict[str, Any]] = []
+    for prompt in prompts:
+        sys.stderr.write(f"[eval] turn {prompt['n']:>2} ({prompt['shape']}) — dispatching…\n")
+        turn = _run_prompt(
+            prompt,
+            cwd=repo_root,
+            run_dir=run_dir,
+            allowed_tools=allowed_tools,
+            timeout_s=timeout_s,
+        )
+        turns.append(turn)
+        sys.stderr.write(
+            f"[eval] turn {prompt['n']:>2} done "
+            f"(blocks={turn['text_block_count']}+{turn['tool_use_count']} "
+            f"hook_exit={turn['hook_exit']})\n"
+        )
 
     state = {
         "run_id": run_id,

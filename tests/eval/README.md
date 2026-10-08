@@ -18,9 +18,9 @@ For each prompt in [`prompts.py`](./prompts.py):
    `audio_recap.hook.main` on it **in-process**, with a `Services`
    graph whose eventlog / state / cache roots are all redirected under
    the run bundle. The developer's real `~/.claude` tree is untouched.
-4. The hook runs in **dry-run mode** (`<repo>/.audio-recap/config.json`
-   carries `{"dry_run": true}` for the duration of the run, then
-   restored) so 16 prompts don't equal 16 audible playbacks.
+4. The hook runs in **dry-run mode** (the runner builds the `Services`
+   graph with `dry_run=True`) so 16 prompts don't equal 16 audible
+   playbacks.
 
 After all prompts finish, the harvest stage joins the eventlog with the
 captured assistant text into a structured `data.json` and a
@@ -98,8 +98,7 @@ runs/2026-05-14T16-30Z/
 ├── state/                # bundle-local on/off state (pre-seeded enabled=true)
 ├── cache/                # bundle-local narration cache written by the hook
 ├── data.json             # per-turn structured data (harvested)
-├── results.md            # human-readable rendering of data.json
-└── config.json.backup    # only if a pre-existing dry-run config was overwritten
+└── results.md            # human-readable rendering of data.json
 ```
 
 ## Reading `results.md`
@@ -121,17 +120,13 @@ For each turn the renderer surfaces:
 
 `test_eval.py` holds fast, no-network unit tests for the harness's pure
 helpers — the harvest KV parser, the fire-grouping logic, the runner's
-payload synthesis, the stream-json parser, the dry-run config context
-manager, the in-process hook fire, and the `check_run` invariant check.
+payload synthesis, the stream-json parser, the in-process hook fire, and
+the `check_run` invariant check.
 These run in CI via plain `pytest`. The full `claude`-CLI-driven run is
 **not** a pytest test — its pass/fail is the runner's exit code, run
 deliberately and opt-in.
 
 ## Notes
 
-- The runner writes `<repo>/.audio-recap/config.json` for the duration
-  of the run and restores any pre-existing file from a backup in the
-  bundle. If a run is interrupted (Ctrl-C, OOM), check for an orphaned
-  config file and remove or restore it manually.
 - Per-prompt timeout defaults to 180s. Prompts requiring multiple Bash
   steps (e.g. `coding-sandbox-scaffold`) can come close to it.

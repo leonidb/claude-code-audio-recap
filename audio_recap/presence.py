@@ -48,10 +48,6 @@ label.
 
 Accepted trade-offs:
 
-- A session enabled by per-cwd ``default_enabled`` rather than by
-  ``/audio-recap:on`` registers on its **first narration**, since no code of
-  ours runs before then. It has produced no audio to disambiguate until that
-  point, so there is nothing to label around.
 - A hard-killed session stays counted until the orphan horizon passes, costing
   at most one unneeded label — the same harmless direction a stale heartbeat
   has always erred in.

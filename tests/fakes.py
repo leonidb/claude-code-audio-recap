@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_recap.config import Config
+from audio_recap.eventlog import FileEventLog
 from audio_recap.lock import AcquireOutcome
 from audio_recap.payload import TurnPayload
 from audio_recap.process import ProcessFailed, ProcessRunner
@@ -162,10 +163,10 @@ class InMemoryStateStore:
     def __post_init__(self) -> None:
         self._store: dict[str, bool] = dict(self.initial)
 
-    def load(self, session_id: str, cwd: str, *, default_enabled: bool = False) -> State:
+    def load(self, session_id: str, cwd: str) -> State:
         if session_id in self._store:
             return State(enabled=self._store[session_id])
-        return State(enabled=default_enabled)
+        return State(enabled=False)
 
     def save(self, state: State, session_id: str, cwd: str) -> None:
         self._store[session_id] = state.enabled
@@ -521,15 +522,20 @@ def real_services(
     runner: ProcessRunner,
     session_id: str = "test-sid",
     eventlog: Any = None,
+    dry_run: bool = False,
 ) -> Services:
     """Production component graph wired to ``runner`` + tmp-rooted paths.
 
-    The real :meth:`Services.from_config` runs (so per-cwd
-    ``.audio-recap/config.json`` overrides under ``cwd`` apply), but
-    every subprocess call goes through the injected ``runner`` and the
-    plugin's storage (log / cache / state) is rooted under ``tmp_path``.
+    The real :meth:`Services.from_config` runs, but every subprocess call
+    goes through the injected ``runner`` and the plugin's storage (log /
+    cache / state) is rooted under ``tmp_path``. Unless a test injects its
+    own ``eventlog``, the graph gets an INFO log at :func:`event_log_path`,
+    so a developer's ``AUDIO_RECAP_LOG_LEVEL`` / ``AUDIO_RECAP_LOG_PATH``
+    never changes what a test sees.
     """
 
+    if eventlog is None:
+        eventlog = FileEventLog(event_log_path(tmp_path))
     return Services.from_config(
         cwd,
         session_id=session_id,
@@ -537,6 +543,7 @@ def real_services(
         eventlog=eventlog,
         audio_recap_root=tmp_path,
         transcript_root=transcript_root(tmp_path),
+        dry_run=dry_run,
     )
 
 

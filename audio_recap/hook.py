@@ -27,8 +27,8 @@ Failure behavior:
 - Invalid JSON on stdin or non-object payload → log and exit 1.
 - Audio Recap disabled (the default, or ``/audio-recap:off``) → exit 0
   before the transcript is opened and without a per-turn log line (one
-  TRACE line when ``log_level`` is ``trace``). Building ``Services`` can
-  still log a malformed project config or an unavailable lock file.
+  TRACE line when ``AUDIO_RECAP_LOG_LEVEL=trace``). Building ``Services``
+  can still log an unavailable lock file.
 - ``claude -p`` recap fails → fall back to the rule-based recap. If
   that too fails → log and speak the message alone.
 - Long-message summarizer fails → log and speak the verbatim message.
@@ -38,7 +38,6 @@ Failure behavior:
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from typing import Any
 
@@ -46,51 +45,6 @@ from audio_recap.payload import PayloadParser, cwd_from_payload, session_id_from
 from audio_recap.pipeline import Pipeline, TTSRunner
 from audio_recap.services import Services, default_event_log
 from audio_recap.state import State
-
-_SPEECH_LOG_PREDICATE = (
-    '(subsystem CONTAINS "speech") '
-    'OR (subsystem == "com.apple.coreaudio") '
-    'OR (process == "speechsynthesisd")'
-)
-_SPEECH_LOG_TIMEOUT_S = 5.0
-_SPEECH_LOG_MAX_LINES = 20
-
-
-def _capture_speech_log(window_s: float) -> str:
-    """Capture the last ``window_s`` of speech-subsystem unified-log lines.
-
-    Best-effort diagnostic: any failure (binary missing, timeout,
-    non-zero exit) returns an empty string so the hook never blocks
-    on diagnostic plumbing. Routes through ``subprocess.run`` directly
-    rather than the central :class:`ProcessRunner` because this is a
-    one-off diagnostic line that doesn't fit the recap/TTS flow shape.
-    """
-
-    span = max(1, round(window_s))
-    try:
-        result = subprocess.run(
-            [
-                "log",
-                "show",
-                "--info",
-                "--predicate",
-                _SPEECH_LOG_PREDICATE,
-                "--last",
-                f"{span}s",
-                "--style",
-                "compact",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=_SPEECH_LOG_TIMEOUT_S,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    if result.returncode != 0:
-        return ""
-    lines = [ln for ln in result.stdout.splitlines() if ln and not ln.startswith("Timestamp")]
-    return "\n".join(lines[-_SPEECH_LOG_MAX_LINES:])
 
 
 def main(raw: bytes, *, services: Services | None = None) -> int:
@@ -104,8 +58,8 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     ``Services`` to substitute Recap / TTS / etc.
     """
 
-    # Decoding runs before the Services graph (and the per-cwd config)
-    # exists, so the parser logs to a bootstrap INFO event log. When
+    # Decoding runs before the Services graph exists, so the parser logs to a
+    # bootstrap event log (TRACE follows ``AUDIO_RECAP_LOG_LEVEL``). When
     # ``services`` is injected (tests), reuse its log instead.
     eventlog = services.eventlog if services is not None else default_event_log()
     payload = PayloadParser(eventlog).decode(raw)
@@ -115,8 +69,8 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     cwd = cwd_from_payload(payload)
 
     if services is None:
-        # Services builds the real event log after Config.load, so its
-        # trace level reflects Config.log_level.
+        # Services builds the real event log, with its trace level from
+        # ``AUDIO_RECAP_LOG_LEVEL``.
         services = Services.from_config(cwd, session_id=session_id)
     log = services.eventlog
 
@@ -124,9 +78,7 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     # session with narration off (the default) must not have its
     # conversation read or recorded: the hook takes the session id and cwd
     # from the payload, looks up the flag, and stops.
-    state: State = services.state.load(
-        session_id, cwd, default_enabled=services.config.default_enabled
-    )
+    state: State = services.state.load(session_id, cwd)
     if not state.enabled:
         sys.stderr.write("[audio-recap] audio recap disabled; skipping\n")
         log.event_trace("stop", session_id=session_id, state="disabled")
@@ -151,10 +103,9 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
     # Presence heartbeat — mark this session as open with narration on, so
     # concurrent sessions announce their names to each other.
     #
-    # ``/audio-recap:on`` writes it; this refresh covers the session enabled by
-    # per-cwd ``default_enabled``, which runs no slash command, and keeps a
-    # long-lived session ahead of the orphan horizon. Past the enabled gate,
-    # which is the whole condition: a heartbeat means enabled and open.
+    # ``/audio-recap:on`` writes it; this refresh keeps a long-lived session
+    # ahead of the orphan horizon. Past the enabled gate, which is the whole
+    # condition: a heartbeat means enabled and open.
     #
     # Best-effort, and the count excludes self, so this never affects its own
     # label. See :mod:`audio_recap.presence` for what a heartbeat means.
@@ -197,14 +148,6 @@ def main(raw: bytes, *, services: Services | None = None) -> int:
         )
     else:
         services.cache.write(turn.session_id, result.recap_text, result.message_text)
-
-    # Optional speech-log telemetry under tts.trace_speech_log.
-    if not services.config.dry_run and services.config.tts.trace_speech_log:
-        log.event_trace(
-            "trace_speech_log",
-            session_id=turn.session_id,
-            excerpt=_capture_speech_log(_SPEECH_LOG_TIMEOUT_S),
-        )
 
     return 0
 

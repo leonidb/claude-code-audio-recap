@@ -21,7 +21,7 @@ narration off writes no per-turn line):
 - :meth:`FileEventLog.event_trace` and :meth:`FileEventLog.message_trace`
   are the TRACE-level counterparts. They emit only when ``trace_enabled``
   was set at construction — INFO is the default, TRACE is opt-in via the
-  ``log_level`` per-cwd config field. Use these for subprocess
+  ``AUDIO_RECAP_LOG_LEVEL`` environment variable. Use these for subprocess
   inputs/outputs, raw payloads, full tracebacks, or any data large
   enough that a contributor may not want it on every fire.
 
@@ -39,8 +39,8 @@ sequences ``\\n`` / ``\\t`` / ``\\r`` so every event stays exactly one
 log line — even when a TRACE field is a multi-KB JSON blob or a
 traceback.
 
-INFO is the default level — TRACE is opt-in (set ``log_level`` to
-``"trace"`` in the per-cwd config). Single global file, no rotation,
+INFO is the default level — TRACE is opt-in (set
+``AUDIO_RECAP_LOG_LEVEL=trace`` in the environment). Single global file, no rotation,
 accumulates indefinitely — mirrors the "state files accumulate forever"
 stance in :mod:`audio_recap.state`.
 
@@ -136,7 +136,7 @@ class FileEventLog:
 
     ``trace_enabled`` gates :meth:`event_trace` / :meth:`message_trace`;
     it defaults to ``False`` (INFO) — TRACE is opt-in via the
-    ``log_level`` per-cwd config field.
+    ``AUDIO_RECAP_LOG_LEVEL`` environment variable.
     """
 
     def __init__(self, path: Path, trace_enabled: bool = False) -> None:

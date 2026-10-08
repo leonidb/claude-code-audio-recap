@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -28,7 +27,7 @@ def store(tmp_path: Path) -> FileStateStore:
 
 @pytest.fixture
 def services(tmp_path: Path) -> Services:
-    """Production Services graph; cwd ``/proj`` (no per-cwd config → defaults)."""
+    """Production Services graph; cwd ``/proj``, shipped defaults."""
 
     return real_services(CWD, tmp_path, runner=FakeProcessRunner())
 
@@ -252,39 +251,7 @@ def test_session_id_flag_without_value_falls_back_to_default(
     assert "usage:" in capsys.readouterr().err
 
 
-# ---------- 069: default_enabled config field ----------
-
-
-def _write_default_enabled_config(cwd: Path, value: bool) -> None:
-    """Drop a per-cwd config that toggles ``default_enabled``."""
-
-    cfg = cwd / ".audio-recap" / "config.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(json.dumps({"default_enabled": value}), encoding="utf-8")
-
-
-def test_status_reports_enabled_when_default_enabled_and_no_state_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """``status`` returns the *effective* state, not just file-or-default-off.
-
-    A user with ``default_enabled: true`` and no prior toggle should
-    see the truthful "enabled" report — otherwise the config flag
-    appears dead until they explicitly set on/off once.
-    """
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    _write_default_enabled_config(cwd, True)
-    # Services built with the config cwd so ``config.default_enabled`` is True.
-    services = real_services(str(cwd), tmp_path, runner=FakeProcessRunner())
-
-    rc = command.main(
-        ["command.py", "--session-id", "fresh-sid", "--cwd", str(cwd), "status"],
-        services=services,
-    )
-    assert rc == 0
-    assert capsys.readouterr().out == "Audio Recap is enabled.\n"
+# ---------- status with no state file ----------
 
 
 def test_status_reports_disabled_for_default_off_and_no_state_file(
@@ -292,9 +259,7 @@ def test_status_reports_disabled_for_default_off_and_no_state_file(
 ) -> None:
     cwd = tmp_path / "proj"
     cwd.mkdir()
-    # No config file at all — default_enabled stays False (the field
-    # default), so status reflects the unchanged silent-by-default
-    # behavior.
+    # No state file: a fresh session is silent until /audio-recap:on.
     services = real_services(str(cwd), tmp_path, runner=FakeProcessRunner())
     rc = command.main(
         ["command.py", "--session-id", "fresh-sid", "--cwd", str(cwd), "status"],
@@ -302,28 +267,6 @@ def test_status_reports_disabled_for_default_off_and_no_state_file(
     )
     assert rc == 0
     assert capsys.readouterr().out == "Audio Recap is disabled.\n"
-
-
-def test_off_persists_after_default_enabled_true(tmp_path: Path) -> None:
-    """An explicit ``off`` writes ``enabled=false`` and survives subsequent
-    reads, beating ``default_enabled: true``."""
-
-    cwd = tmp_path / "proj"
-    cwd.mkdir()
-    _write_default_enabled_config(cwd, True)
-    services = real_services(str(cwd), tmp_path, runner=FakeProcessRunner())
-
-    rc = command.main(
-        ["command.py", "--session-id", "explicit-off-sid", "--cwd", str(cwd), "off"],
-        services=services,
-    )
-    assert rc == 0
-
-    # Reading state with default_enabled=True must still see the
-    # persisted ``false``. (The file beats the config default.)
-    store = FileStateStore(state_root(tmp_path))
-    s = store.load("explicit-off-sid", str(cwd), default_enabled=True)
-    assert s.enabled is False
 
 
 # ---------- doesn't touch real ~/.claude ----------

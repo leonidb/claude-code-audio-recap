@@ -20,9 +20,8 @@ build/
 # that should not be tracked.
 tests/eval/runs/
 
-# A pre-existing .audio-recap/config.json gets backed up by the
-# eval runner during a run and restored on exit; if a run is
-# interrupted the override file may be left behind.
+# Leftover per-project config from before it was removed (the plugin no
+# longer reads it); never commit one.
 .audio-recap/
 
 # Ad-hoc tester bundles produced by external test runners.

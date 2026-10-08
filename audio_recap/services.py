@@ -27,7 +27,7 @@ concrete to instantiate.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from audio_recap.cache import FileNarrationCache, NarrationCache
@@ -63,6 +63,12 @@ from audio_recap.tts.macos_say import MacOSSay
 # ``FileEventLog`` itself takes an already-resolved path.
 _LOG_PATH_ENV = "AUDIO_RECAP_LOG_PATH"
 
+# Env var that turns on TRACE logging (full text: payloads, prompts, replies)
+# while debugging. Users set it in ``~/.claude/settings.json`` under ``env``,
+# which Claude Code applies to hooks and to its Bash tool. Read only here, like
+# ``AUDIO_RECAP_LOG_PATH``.
+_LOG_LEVEL_ENV = "AUDIO_RECAP_LOG_LEVEL"
+
 
 def resolve_log_path(env_value: str | None, default: Path) -> Path:
     """Pick the log path: ``env_value`` if set, else ``default``.
@@ -77,19 +83,37 @@ def resolve_log_path(env_value: str | None, default: Path) -> Path:
     return default
 
 
-def default_event_log(log_path: Path | None = None) -> FileEventLog:
-    """A bootstrap INFO event log.
+def resolve_log_level(env_value: str | None) -> str:
+    """Pick the log level: ``"trace"`` if ``env_value`` says so, else ``"info"``.
 
-    Payload parsing and ``Config.load`` run before the per-cwd config is
-    known, so they log through this. :meth:`Services.from_config` then
-    builds the real event log with ``trace_enabled`` from
-    ``Config.log_level``. ``log_path`` defaults to the env-resolved
-    production path; callers may pass an explicit path.
+    Pure function — the caller reads ``AUDIO_RECAP_LOG_LEVEL``. The match is
+    case-insensitive and ignores surrounding whitespace; any other value,
+    including unset, is ``"info"``.
+    """
+
+    if env_value is not None and env_value.strip().lower() == "trace":
+        return "trace"
+    return "info"
+
+
+def default_event_log(
+    log_path: Path | None = None, *, trace_enabled: bool | None = None
+) -> FileEventLog:
+    """A bootstrap event log, for the Stop hook's payload decoding.
+
+    Decoding runs before :class:`Services` exists, so it logs through this.
+    Both arguments default to what the environment says, as the graph's own
+    log does: ``log_path`` to the ``AUDIO_RECAP_LOG_PATH``-resolved
+    production path, ``trace_enabled`` to ``AUDIO_RECAP_LOG_LEVEL`` (so an
+    invalid payload's TRACE line is written when tracing is on). Callers
+    may pass either explicitly.
     """
 
     if log_path is None:
         log_path = resolve_log_path(os.environ.get(_LOG_PATH_ENV), DEFAULT_LOG_PATH)
-    return FileEventLog(log_path)
+    if trace_enabled is None:
+        trace_enabled = resolve_log_level(os.environ.get(_LOG_LEVEL_ENV)) == "trace"
+    return FileEventLog(log_path, trace_enabled)
 
 
 def _build_playback_lock(audio_recap_root: Path, eventlog: EventLog) -> PlaybackLock:
@@ -138,8 +162,9 @@ class Services:
         eventlog: EventLog | None = None,
         audio_recap_root: Path = DEFAULT_AUDIO_RECAP_ROOT,
         transcript_root: Path = DEFAULT_CC_TRANSCRIPT_ROOT,
+        dry_run: bool = False,
     ) -> Services:
-        """Build the production dependency graph for ``cwd``.
+        """Build the production dependency graph.
 
         This is the composition root: it resolves the production
         defaults (``SubprocessProcessRunner``, the real ``FileEventLog``,
@@ -151,24 +176,30 @@ class Services:
         ``session_id`` is forwarded to the Recap and Summarizer impls so
         their TRACE log lines are filterable by session.
 
+        The config is the shipped defaults with two values resolved here:
+        ``log_level`` from ``AUDIO_RECAP_LOG_LEVEL`` and ``dry_run`` from the
+        keyword, which only the eval harness sets. Nothing is read from
+        disk, and ``cwd`` no longer affects the graph (it once located a
+        per-project config file, since removed).
+
         ``eventlog``: when injected (tests), it is used verbatim. When
-        not, the graph's event log is built *after* ``Config.load`` so
-        its ``trace_enabled`` reflects ``Config.log_level`` — a bootstrap
-        INFO log carries the (INFO-level) config-parse warning until the
-        real one is wired.
+        not, the graph's event log is built with ``trace_enabled`` from
+        the resolved ``log_level``.
         """
 
         log_path = resolve_log_path(
             os.environ.get(_LOG_PATH_ENV), audio_recap_root / "logs" / "audio-recap.log"
         )
+        config = replace(
+            Config.default(),
+            log_level=resolve_log_level(os.environ.get(_LOG_LEVEL_ENV)),
+            dry_run=dry_run,
+        )
 
         actual_eventlog: EventLog
         if eventlog is not None:
             actual_eventlog = eventlog
-            config = Config.load(cwd, eventlog=actual_eventlog)
         else:
-            bootstrap = default_event_log(log_path)
-            config = Config.load(cwd, eventlog=bootstrap)
             actual_eventlog = FileEventLog(log_path, config.log_level == "trace")
         actual_runner: ProcessRunner = runner if runner is not None else SubprocessProcessRunner()
         return cls(
@@ -194,5 +225,6 @@ __all__ = [
     "DEFAULT_LOG_PATH",
     "Services",
     "default_event_log",
+    "resolve_log_level",
     "resolve_log_path",
 ]
