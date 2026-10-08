@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from importlib.metadata import version
 from pathlib import Path
@@ -91,6 +92,28 @@ def test_registered_hook_commands_exist() -> None:
                 ], entry["command"]
                 script = argv[0].replace("${CLAUDE_PLUGIN_ROOT}/", "")
                 assert (_REPO_ROOT / script).is_file(), script
+
+
+def test_no_test_uses_monkeypatch() -> None:
+    """The suite uses dependency injection, never ``monkeypatch``.
+
+    A test that needs to patch something has found a missing seam; that is a
+    design question for review, not something to commit. Fails on any use so
+    it surfaces in CI. (A one-off manual check may patch freely; it is not
+    committed.)
+    """
+
+    tests_dir = _REPO_ROOT / "tests"
+    this_file = Path(__file__).resolve()
+    pattern = re.compile(r"\bmonkeypatch\s*[.:(]|\bMonkeyPatch\b")
+    offenders = [
+        f"{path.relative_to(_REPO_ROOT)}:{lineno}"
+        for path in sorted(tests_dir.rglob("*.py"))
+        if path.resolve() != this_file
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if pattern.search(line)
+    ]
+    assert offenders == [], offenders
 
 
 def test_own_command_tags_cover_exactly_the_shipped_commands() -> None:
