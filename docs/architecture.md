@@ -142,11 +142,14 @@ per-turn tax; once that hook was dropped, SessionEnd fired once per session at
 teardown and the spawn stopped being worth a second implementation of the
 storage layout and of session-id resolution.
 
-Every hook fire and slash-command invocation appends one structured
-`key=value` line to `~/.claude/audio-recap/logs/audio-recap.log` (see
+Every Stop-hook fire in a session with narration on, and every
+slash-command invocation, appends structured `key=value` lines to
+`~/.claude/audio-recap/logs/audio-recap.log` (see
 [`audio_recap/eventlog.py`](../audio_recap/eventlog.py)) — the surface
-for debugging "why did the hook take this path." Append-only, no
-rotation.
+for debugging "why did the hook take this path." A session with narration
+off writes no per-turn line (one TRACE line with
+`AUDIO_RECAP_LOG_LEVEL=trace`); a malformed hook payload or an unusable
+lock file is still logged. Append-only, no rotation.
 
 ## Module layout
 
@@ -177,10 +180,13 @@ audio_recap/
 └── tts/           # TTS protocol — macos_say (only shipped backend)
 ```
 
-`scripts/run.sh` is a thin shim: it sets `PYTHONPATH` and execs
+`scripts/run.sh` is a thin shim: it sets `PYTHONPATH`, `cd`s to the plugin
+root (so the project directory can't shadow the plugin's modules), and execs
 `python3 -m audio_recap <subcommand>` (`hook`, `command`, `repeat`,
 `session-end`) — it is the only executable the manifest and the slash commands
-name. The Stop hook and
+name. Off macOS it stops before Python: `hook` and `session-end` exit silently
+and anything else prints "Audio Recap works only on macOS." That guard is the
+one place outside `__main__.py` that knows subcommand names. The Stop hook and
 `/audio-recap:repeat` share `pipeline.py` so auto-narration and
 on-demand replay run an identical recap + summarize + transforms path.
 
