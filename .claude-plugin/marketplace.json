@@ -18,7 +18,7 @@
       "homepage": "https://github.com/leonidb/claude-code-audio-recap",
       "repository": "https://github.com/leonidb/claude-code-audio-recap",
       "license": "Apache-2.0",
-      "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
+      "keywords": ["tts", "audio", "voice", "speech", "narration", "recap", "summary", "accessibility", "hands-free", "macos"]
     }
   ]
 }

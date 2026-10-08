@@ -14,5 +14,5 @@
   "privacyPolicyUrl": "https://github.com/leonidb/claude-code-audio-recap#privacy",
   "icon": "./icon.png",
   "license": "Apache-2.0",
-  "keywords": ["claude-code", "plugin", "tts", "audio", "recap", "accessibility"]
+  "keywords": ["tts", "audio", "voice", "speech", "narration", "recap", "summary", "accessibility", "hands-free", "macos"]
 }
