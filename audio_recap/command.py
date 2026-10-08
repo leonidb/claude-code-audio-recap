@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None, *, services: Services | None = None) -> 
     project_cwd = _resolve_cwd(args.cwd)
 
     if services is None:
-        services = Services.from_config(project_cwd, session_id=session_id)
+        services = Services.from_config(session_id=session_id)
     return CommandHandler(services).dispatch(args.verb, session_id, project_cwd)
 
 

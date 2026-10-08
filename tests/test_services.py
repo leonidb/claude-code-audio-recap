@@ -88,7 +88,7 @@ def test_default_event_log_is_info_level_unless_traced(tmp_path: Path) -> None:
 def test_from_config_wires_the_production_graph(tmp_path: Path) -> None:
     """``from_config`` builds a fully-populated Services with every slot filled."""
 
-    services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
+    services = real_services(tmp_path, runner=FakeProcessRunner())
     assert isinstance(services, Services)
     # Every slot is wired — no None left behind by the composition root.
     assert services.recap_primary is not None
@@ -106,7 +106,7 @@ def test_from_config_wires_the_production_graph(tmp_path: Path) -> None:
 def test_from_config_roots_file_services_under_the_injected_paths(tmp_path: Path) -> None:
     """The injected roots reach the file-backed services — nothing hits ~/.claude."""
 
-    services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
+    services = real_services(tmp_path, runner=FakeProcessRunner())
     # A state save lands under the injected state root, not the home dir.
     from audio_recap.state import State
 
@@ -131,7 +131,6 @@ def test_from_config_fails_open_to_null_lock_when_lockfile_uncreatable(tmp_path:
     bad_root = blocker / "audio-recap"
 
     services = Services.from_config(
-        "/proj",
         session_id="sid",
         runner=FakeProcessRunner(),
         eventlog=default_event_log(tmp_path / "log", trace_enabled=False),
@@ -148,14 +147,12 @@ def test_from_config_dry_run_comes_only_from_the_keyword(tmp_path: Path) -> None
     """``dry_run`` is off unless the caller (the eval harness) asks for it."""
 
     default = Services.from_config(
-        "/proj",
         session_id="sid",
         runner=FakeProcessRunner(),
         audio_recap_root=tmp_path,
         transcript_root=tmp_path / "cc",
     )
     dry = Services.from_config(
-        "/proj",
         session_id="sid",
         runner=FakeProcessRunner(),
         audio_recap_root=tmp_path,

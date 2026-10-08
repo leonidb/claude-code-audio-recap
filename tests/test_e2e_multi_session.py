@@ -153,11 +153,10 @@ def _runner(tracker: _AfplayTracker | None = None) -> FakeProcessRunner:
     return FakeProcessRunner(handlers)
 
 
-def _services(session_id: str, cwd: str, shared_root: Path, runner: FakeProcessRunner) -> Services:
+def _services(session_id: str, shared_root: Path, runner: FakeProcessRunner) -> Services:
     """A production graph rooted under ``shared_root`` so sessions share lock+registry."""
 
     return Services.from_config(
-        cwd,
         session_id=session_id,
         runner=runner,
         eventlog=FakeEventLog(),  # per-session log avoids concurrent file-append noise
@@ -182,7 +181,7 @@ def _on(session_id: str, cwd: str, shared_root: Path) -> None:
     """Run the REAL ``/audio-recap:on`` handler against the shared root."""
 
     argv = ["command.py", "--session-id", session_id, "--cwd", cwd, "on"]
-    services = _services(session_id, cwd, shared_root, _runner())
+    services = _services(session_id, shared_root, _runner())
     assert command.main(argv, services=services) == 0
 
 
@@ -190,7 +189,7 @@ def _off(session_id: str, cwd: str, shared_root: Path) -> None:
     """Run the REAL ``/audio-recap:off`` handler against the shared root."""
 
     argv = ["command.py", "--session-id", session_id, "--cwd", cwd, "off"]
-    services = _services(session_id, cwd, shared_root, _runner())
+    services = _services(session_id, shared_root, _runner())
     assert command.main(argv, services=services) == 0
 
 
@@ -208,7 +207,7 @@ def _fire_stop(session_id: str, cwd: str, shared: Path) -> FakeProcessRunner:
 
     runner = _runner()
     payload = raw_payload(_stop_payload(session_id, cwd))
-    assert hook.main(payload, services=_services(session_id, cwd, shared, runner)) == 0
+    assert hook.main(payload, services=_services(session_id, shared, runner)) == 0
     return runner
 
 
@@ -228,7 +227,7 @@ def test_concurrent_stop_fires_serialize_playback(tmp_path: Path) -> None:
     start = threading.Barrier(len(sessions))
 
     def fire(sid: str) -> None:
-        svc = _services(sid, "/proj", shared, _runner(tracker))
+        svc = _services(sid, shared, _runner(tracker))
         start.wait()  # all sessions rush the lock together
         assert hook.main(raw_payload(_stop_payload(sid, "/proj")), services=svc) == 0
 
@@ -308,7 +307,7 @@ def test_global_sentinel_session_registers_and_retires_like_any_other(tmp_path: 
     del payload["session_id"]
 
     def fire_unsubstituted() -> None:
-        services = _services("_global", cwd, shared, _runner())
+        services = _services("_global", shared, _runner())
         assert hook.main(raw_payload(payload), services=services) == 0
 
     # Disabled → no heartbeat, same as any other session.
@@ -333,7 +332,7 @@ def test_global_sentinel_session_registers_and_retires_like_any_other(tmp_path: 
     # ``/audio-recap:off`` with no --session-id resolves the same sentinel.
     fire_unsubstituted()
     assert hb.exists()
-    services = _services("_global", cwd, shared, _runner())
+    services = _services("_global", shared, _runner())
     assert command.main(["command.py", "--cwd", cwd, "off"], services=services) == 0
     assert not hb.exists()
 

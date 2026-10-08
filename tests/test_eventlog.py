@@ -131,7 +131,7 @@ def test_hook_writes_nothing_for_a_disabled_session(log_path: Path, tmp_path: Pa
     }
     # No state file seeded → the hook reads default-off and exits 0
     # before any subprocess call, so an empty FakeProcessRunner is fine.
-    services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
+    services = real_services(tmp_path, runner=FakeProcessRunner())
 
     assert hook.main(raw_payload(payload), services=services) == 0
     assert not log_path.exists() or "event=stop" not in log_path.read_text(encoding="utf-8")
@@ -145,7 +145,6 @@ def test_hook_traces_one_line_for_a_disabled_session(log_path: Path, tmp_path: P
 
     payload = {"session_id": "log-test-sid", "cwd": "/proj", "hook_event_name": "Stop"}
     services = real_services(
-        "/proj",
         tmp_path,
         runner=FakeProcessRunner(),
         eventlog=FileEventLog(log_path, trace_enabled=True),
@@ -160,7 +159,7 @@ def test_hook_traces_one_line_for_a_disabled_session(log_path: Path, tmp_path: P
 def test_command_emits_action_and_verb(log_path: Path, tmp_path: Path) -> None:
     from audio_recap import command
 
-    services = real_services("/proj", tmp_path, runner=FakeProcessRunner())
+    services = real_services(tmp_path, runner=FakeProcessRunner())
     rc = command.main(
         ["command.py", "--session-id", "cmd-test-sid", "--cwd", "/proj", "on"],
         services=services,

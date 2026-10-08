@@ -156,7 +156,6 @@ class Services:
     @classmethod
     def from_config(
         cls,
-        cwd: str,
         session_id: str,
         runner: ProcessRunner | None = None,
         eventlog: EventLog | None = None,
@@ -179,8 +178,7 @@ class Services:
         The config is the shipped defaults with two values resolved here:
         ``log_level`` from ``AUDIO_RECAP_LOG_LEVEL`` and ``dry_run`` from the
         keyword, which only the eval harness sets. Nothing is read from
-        disk, and ``cwd`` no longer affects the graph (it once located a
-        per-project config file, since removed).
+        disk.
 
         ``eventlog``: when injected (tests), it is used verbatim. When
         not, the graph's event log is built with ``trace_enabled`` from

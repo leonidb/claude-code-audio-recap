@@ -29,7 +29,7 @@ def store(tmp_path: Path) -> FileStateStore:
 def services(tmp_path: Path) -> Services:
     """Production Services graph; cwd ``/proj``, shipped defaults."""
 
-    return real_services(CWD, tmp_path, runner=FakeProcessRunner())
+    return real_services(tmp_path, runner=FakeProcessRunner())
 
 
 def _run(services: Services, *argv: str) -> int:
@@ -260,7 +260,7 @@ def test_status_reports_disabled_for_default_off_and_no_state_file(
     cwd = tmp_path / "proj"
     cwd.mkdir()
     # No state file: a fresh session is silent until /audio-recap:on.
-    services = real_services(str(cwd), tmp_path, runner=FakeProcessRunner())
+    services = real_services(tmp_path, runner=FakeProcessRunner())
     rc = command.main(
         ["command.py", "--session-id", "fresh-sid", "--cwd", str(cwd), "status"],
         services=services,
