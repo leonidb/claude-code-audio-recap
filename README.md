@@ -35,7 +35,7 @@ The first command tells Claude Code where to find Audio Recap; the second instal
 
 > Using the Claude desktop app? Open the **Code** tab, click **+** next to the prompt, and choose **Plugins → Add plugin**. Add the marketplace `leonidb/claude-code-audio-recap`, then install Audio Recap from it. Installs from the app are active right away, no reload needed.
 
-> Note: in the desktop app you also need the Claude Code CLI installed - `curl -fsSL https://claude.ai/install.sh | bash`
+> Note: in the desktop app you also need the Claude Code CLI installed - see [Set up Claude Code](https://code.claude.com/docs/en/setup).
 
 ### 2. Turn Audio Recap on
 
